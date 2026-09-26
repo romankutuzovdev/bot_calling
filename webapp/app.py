@@ -497,7 +497,7 @@ async def tts(body: TtsIn) -> Response:
     - edge = Microsoft Neural (бесплатно, хороший русский женский)
     """
     script = load_script()
-    engine = (body.engine or script.get("tts_engine") or "edge").lower()
+    engine = (body.engine or script.get("tts_engine") or "elevenlabs").lower()
     text = " ".join(body.text.split())
     if not text:
         raise HTTPException(400, "Пустой текст")
@@ -508,24 +508,40 @@ async def tts(body: TtsIn) -> Response:
 
     if engine in ("elevenlabs", "11labs", "eleven"):
         try:
-            from webapp.elevenlabs_tts import resolve_api_key, synthesize_mp3
+            from webapp.elevenlabs_tts import (
+                pick_api_voice_id,
+                resolve_api_key,
+                synthesize_mp3,
+            )
         except ImportError:
-            from elevenlabs_tts import resolve_api_key, synthesize_mp3  # type: ignore
+            from elevenlabs_tts import (  # type: ignore
+                pick_api_voice_id,
+                resolve_api_key,
+                synthesize_mp3,
+            )
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
         raw_voice = (body.voice or "").strip()
-        voice_id = raw_voice or (script.get("elevenlabs_voice_id") or "").strip()
+        preferred = raw_voice or (script.get("elevenlabs_voice_id") or "").strip()
         if not api_key:
             raise HTTPException(
                 400,
-                "Нет API key. Создайте C:\\bot_calling\\.env с ELEVENLABS_API_KEY=... "
-                "или вставьте ключ в UI. На Free плане library-голоса через API недоступны — выберите Edge.",
+                "Нет API key. В .env: ELEVENLABS_API_KEY=sk_... или вставьте в UI.",
             )
-        if not voice_id:
-            raise HTTPException(
-                400,
-                "Нет Voice ID. На Free плане лучше голос Edge: ru-RU-SvetlanaNeural.",
-            )
+        try:
+            voice_id = await pick_api_voice_id(api_key, preferred or None)
+        except Exception as exc:
+            raise HTTPException(400, f"ElevenLabs голоса: {exc}") from exc
+
+        # сохранить выбранный ID, если был library/пустой
+        if voice_id and voice_id != preferred:
+            try:
+                script["elevenlabs_voice_id"] = voice_id
+                script["tts_engine"] = "elevenlabs"
+                save_script(script)
+            except Exception:
+                pass
+
         try:
             audio = await synthesize_mp3(
                 text,
@@ -535,23 +551,45 @@ async def tts(body: TtsIn) -> Response:
             )
         except Exception as exc:
             err = str(exc)
-            # Free plan: library voices blocked → auto Edge female RU
+            # library voice на free → пробуем другой свой голос
             if "402" in err or "paid_plan" in err.lower() or "payment_required" in err.lower():
-                audio = await synthesize_edge_mp3(text, "ru-RU-SvetlanaNeural", edge_rate)
-                return Response(
-                    content=audio,
-                    media_type="audio/mpeg",
-                    headers={
-                        "Cache-Control": "no-store",
-                        "X-TTS-Fallback": "edge-svetlana",
-                        "X-TTS-Fallback-Reason": "elevenlabs-paid-plan-required",
-                    },
-                )
+                try:
+                    alt = await pick_api_voice_id(api_key, None)
+                    if alt and alt != voice_id:
+                        audio = await synthesize_mp3(
+                            text,
+                            api_key=api_key,
+                            voice_id=alt,
+                            model_id=script.get("elevenlabs_model") or "eleven_multilingual_v2",
+                        )
+                        try:
+                            script["elevenlabs_voice_id"] = alt
+                            save_script(script)
+                        except Exception:
+                            pass
+                        return Response(
+                            content=audio,
+                            media_type="audio/mpeg",
+                            headers={
+                                "Cache-Control": "no-store",
+                                "X-TTS-Voice": alt,
+                                "X-TTS-Note": "switched-from-library-voice",
+                            },
+                        )
+                except Exception:
+                    pass
+                raise HTTPException(
+                    402,
+                    "ElevenLabs Free: library-голоса через API нельзя. "
+                    "Создайте свой Instant Voice Clone на elevenlabs.io → Voices → Add, "
+                    "вставьте Voice ID в UI, либо оформите платный план. "
+                    f"Детали: {err[:200]}",
+                ) from exc
             raise HTTPException(502, f"ElevenLabs: {exc}") from exc
         return Response(
             content=audio,
             media_type="audio/mpeg",
-            headers={"Cache-Control": "no-store", "Accept-Ranges": "bytes"},
+            headers={"Cache-Control": "no-store", "Accept-Ranges": "bytes", "X-TTS-Voice": voice_id},
         )
 
     if engine in ("clone", "xtts"):

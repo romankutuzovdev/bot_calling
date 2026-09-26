@@ -204,10 +204,51 @@ async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str
             {
                 "voice_id": v.get("voice_id") or "",
                 "name": v.get("name") or "",
-                "category": v.get("category") or "",
+                "category": (v.get("category") or "").lower(),
             }
         )
     return out
+
+
+async def pick_api_voice_id(api_key: str, preferred: str | None = None) -> str:
+    """
+    Free plan blocks Voice Library via API.
+    Prefer: cloned / generated / professional (свои), then preferred, then any.
+    """
+    voices = await list_voices(api_key)
+    if not voices:
+        raise RuntimeError(
+            "В аккаунте нет голосов. Создайте Instant Voice Clone на elevenlabs.io "
+            "(Voices → Add) и вставьте Voice ID."
+        )
+
+    preferred = (preferred or "").strip()
+    by_id = {v["voice_id"]: v for v in voices if v.get("voice_id")}
+
+    def rank(v: dict[str, str]) -> int:
+        cat = v.get("category") or ""
+        if cat in ("cloned", "generated"):
+            return 0
+        if cat == "professional":
+            return 1
+        if cat == "premade":
+            return 9
+        return 5
+
+    owned = sorted(voices, key=rank)
+    # свой клон / сгенерированный
+    for v in owned:
+        if rank(v) <= 1 and v.get("voice_id"):
+            return v["voice_id"]
+
+    if preferred and preferred in by_id and (by_id[preferred].get("category") or "") != "premade":
+        return preferred
+
+    # последний шанс — preferred даже если premade (на платном сработает)
+    if preferred:
+        return preferred
+
+    return owned[0]["voice_id"]
 
 
 async def check_key(api_key: str) -> dict[str, Any]:
