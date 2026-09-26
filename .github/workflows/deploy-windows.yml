@@ -1,0 +1,23 @@
+# Deploy bot_calling to Windows self-hosted runner on every push to main.
+name: Deploy Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - name: Pull and restart bot
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "C:\bot_calling"
+          if (-not (Test-Path $root)) {
+            throw "Repo not found at $root. Clone once: git clone https://github.com/romankutuzovdev/bot_calling.git C:\bot_calling"
+          }
+          Set-Location $root
+          Set-ExecutionPolicy -Scope Process Bypass
+          & .\webapp\scripts\deploy_update.ps1 -RepoRoot $root -Port 8080

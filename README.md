@@ -80,6 +80,15 @@ source .venv/bin/activate
 
 В `config_auto.yaml`: `tts.engine: clone`. Для быстрого Denis без клона — `engine: piper`.
 
+## CI/CD (push → Windows Server)
+
+Подробно: [webapp/CICD.md](webapp/CICD.md) — self-hosted GitHub Actions runner + `deploy_update.ps1`.
+
+```bash
+git push origin main
+# сервер сам делает git pull и перезапускает бота на :8080
+```
+
 ## Веб-тестер (порт 8080)
 
 ```bash
