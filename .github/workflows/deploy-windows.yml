@@ -10,14 +10,56 @@ jobs:
   deploy:
     runs-on: [self-hosted, Windows, X64]
     steps:
-      - name: Pull and restart bot
+      - name: Pull latest and restart bot
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           $root = "C:\bot_calling"
+          $port = 8080
+
           if (-not (Test-Path $root)) {
-            throw "Repo not found at $root. Clone once: git clone https://github.com/romankutuzovdev/bot_calling.git C:\bot_calling"
+            throw "Missing $root - clone repo there once"
           }
+
           Set-Location $root
           Set-ExecutionPolicy -Scope Process Bypass
-          & .\webapp\scripts\deploy_update.ps1 -RepoRoot $root -Port 8080
+
+          Write-Host "==> git fetch/reset"
+          git fetch origin
+          git checkout main
+          git reset --hard origin/main
+
+          if (Test-Path "$root\webapp\scripts\deploy_update.ps1") {
+            & "$root\webapp\scripts\deploy_update.ps1" -RepoRoot $root -Port $port -SkipPip:$false
+            exit $LASTEXITCODE
+          }
+
+          # Fallback if script missing
+          Write-Host "==> fallback restart"
+          $py = $null
+          foreach ($c in @("$root\.venv\Scripts\python.exe", "$root\webapp\.venv\Scripts\python.exe")) {
+            if (Test-Path $c) { $py = $c; break }
+          }
+          if (-not $py) { throw "No venv python. Create venv and pip install webapp\requirements-web.txt" }
+
+          & $py -m pip install -q -r "$root\webapp\requirements-web.txt"
+          & $py -m pip install -q edge-tts
+
+          Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 2
+
+          $env:PYTHONPATH = $root
+          $env:COQUI_TOS_AGREED = "1"
+          $env:CUDA_VISIBLE_DEVICES = ""
+          New-Item -ItemType Directory -Force -Path "$root\logs" | Out-Null
+
+          Start-Process -FilePath $py `
+            -ArgumentList @("-m","uvicorn","webapp.app:app","--host","0.0.0.0","--port","$port") `
+            -WorkingDirectory $root `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput "$root\logs\uvicorn.out.log" `
+            -RedirectStandardError "$root\logs\uvicorn.err.log"
+
+          Write-Host "Bot started on 0.0.0.0:$port"

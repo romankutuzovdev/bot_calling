@@ -33,7 +33,9 @@ Desktop.ini
 
 # Logs & caches
 *.log
+actions-runner/
 logs/
+
 .cache/
 .pytest_cache/
 .mypy_cache/
