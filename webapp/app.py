@@ -330,7 +330,11 @@ async def tts(body: TtsIn) -> Response:
             )
         except Exception as exc:
             raise HTTPException(502, f"ElevenLabs: {exc}") from exc
-        return Response(content=audio, media_type="audio/mpeg")
+        return Response(
+            content=audio,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store", "Accept-Ranges": "bytes"},
+        )
 
     if engine in ("clone", "xtts"):
         try:

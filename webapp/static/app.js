@@ -36,16 +36,27 @@ async function playUrl(url) {
       currentAudio.pause();
     } catch {}
   }
-  const audio = new Audio(url);
+  const audio = new Audio();
   currentAudio = audio;
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    showPlayButton(false);
-    pendingAudioUrl = null;
-  };
-  await audio.play();
+  await new Promise((resolve, reject) => {
+    audio.onended = () => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+      showPlayButton(false);
+      pendingAudioUrl = null;
+      resolve();
+    };
+    audio.onerror = () => {
+      reject(new Error("Аудио не загрузилось (битый файл или неверный формат)"));
+    };
+    audio.oncanplaythrough = () => {
+      audio.play().then(resolve).catch(reject);
+    };
+    audio.src = url;
+    audio.load();
+  });
   showPlayButton(false);
-  pendingAudioUrl = null;
 }
 
 async function speak(text) {
@@ -55,18 +66,16 @@ async function speak(text) {
     if (currentAudio) {
       currentAudio.pause();
       try {
-        URL.revokeObjectURL(currentAudio.src);
+        if (currentAudio.src && currentAudio.src.startsWith("blob:")) {
+          URL.revokeObjectURL(currentAudio.src);
+        }
       } catch {}
       currentAudio = null;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
 
-    if (ttsEngine === "clone" && status) {
-      status.textContent = "Генерация голоса (CPU)…";
-    }
-    if (ttsEngine === "elevenlabs" && status) {
-      status.textContent = "ElevenLabs…";
-    }
+    if (ttsEngine === "clone" && status) status.textContent = "Генерация голоса (CPU)…";
+    if (ttsEngine === "elevenlabs" && status) status.textContent = "ElevenLabs…";
 
     const voiceForApi =
       ttsEngine === "elevenlabs"
@@ -78,11 +87,34 @@ async function speak(text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voice: voiceForApi, engine: ttsEngine }),
     });
+
+    const ct = (r.headers.get("content-type") || "").toLowerCase();
+    const buf = await r.arrayBuffer();
+
     if (!r.ok) {
-      const errText = await r.text();
+      let errText = "";
+      try {
+        errText = new TextDecoder().decode(buf);
+      } catch {
+        errText = r.statusText;
+      }
       throw new Error(errText || r.statusText);
     }
-    const blob = await r.blob();
+    if (!buf.byteLength) {
+      throw new Error("Сервер вернул пустое аудио");
+    }
+    // если пришла JSON-ошибка под видом 200
+    if (ct.includes("application/json") || ct.includes("text/")) {
+      const errText = new TextDecoder().decode(buf);
+      throw new Error(errText.slice(0, 500));
+    }
+
+    const mime = ct.includes("audio")
+      ? ct.split(";")[0].trim()
+      : ttsEngine === "clone"
+        ? "audio/wav"
+        : "audio/mpeg";
+    const blob = new Blob([buf], { type: mime });
     const url = URL.createObjectURL(blob);
     pendingAudioUrl = url;
     if (status) status.textContent = "";
@@ -90,7 +122,6 @@ async function speak(text) {
     try {
       await playUrl(url);
     } catch (playErr) {
-      // Браузер блокирует autoplay до клика пользователя — TTS уже OK
       const m = String(playErr && playErr.message ? playErr.message : playErr);
       if (/interact|NotAllowedError|play\(\)/i.test(m)) {
         showPlayButton(true);
