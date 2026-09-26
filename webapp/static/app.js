@@ -92,7 +92,10 @@ async function speak(text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voice: ttsVoice, engine: ttsEngine }),
     });
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(errText || r.statusText);
+    }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -101,8 +104,17 @@ async function speak(text) {
     if (status) status.textContent = "";
     await audio.play();
   } catch (e) {
-    console.warn("TTS failed, fallback speechSynthesis", e);
+    console.warn("TTS failed", e);
     if (status) status.textContent = "";
+    const msg = String(e && e.message ? e.message : e);
+    if (ttsEngine === "clone") {
+      alert(
+        "Клон Андрея не сработал.\n\n" +
+          msg.slice(0, 500) +
+          "\n\nНужен XTTS: pip install torch + coqui-tts\nПока можно выбрать Светлану (Edge)."
+      );
+      return;
+    }
     if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "ru-RU";
