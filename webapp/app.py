@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import re
 import uuid
 from pathlib import Path
@@ -90,6 +91,67 @@ def clean_flags(text: str) -> tuple[str, str | None]:
     return " ".join(spoken.split()).strip(), flag
 
 
+def _norm(text: str) -> str:
+    t = text.lower().replace("ё", "е")
+    t = re.sub(r"[^a-zа-я0-9\s]", " ", t)
+    return " ".join(t.split())
+
+
+def quick_reply(user_text: str, user_turn: int) -> tuple[str, str | None] | None:
+    """Быстрые ответы без Ollama для очевидных реплик (быстрее и правдивее)."""
+    t = _norm(user_text)
+    if not t:
+        return "Вас плохо слышно. Повторите, пожалуйста?", None
+
+    refuse = ("не звоните", "не надо", "не интересно", "удалите", "больше не")
+    busy = ("занят", "неудобно", "некогда", "нет времени", "перезвон", "перезвоните", "позже", "сейчас не")
+    yes = (
+        "здравств",
+        "здрасств",  # частая опечатка/ASR
+        "добрый",
+        "доброе",
+        "добрый день",
+        "алло",
+        "слушаю",
+        "говорите",
+        "давайте",
+        "удобно",
+        "можно",
+        "да ",
+        " да",
+        "ок",
+        "окей",
+        "хорошо",
+        "конечно",
+        "минуту",
+    )
+
+    if any(x in t for x in refuse):
+        return "Понял вас. Хорошего дня!", "END_CALL"
+
+    # первая реплика клиента после приветствия бота
+    if user_turn <= 1:
+        is_busy = any(x in t for x in busy)
+        is_hello_or_yes = any(x in t for x in yes) or t in ("да", "угу", "ага", "йес")
+        # «здравствуйте» ≠ занят
+        if is_hello_or_yes and not (is_busy and not any(x in t for x in ("здравств", "здрасств", "добрый", "алло"))):
+            return (
+                "Отлично. Возим по Беларуси, России, СНГ, Европе, Турции и Китаю. "
+                "Вы сами организуете перевозки или лучше к логисту?",
+                None,
+            )
+        if is_busy:
+            return "Понимаю. Когда удобнее перезвонить — сегодня позже или завтра?", None
+
+    return None
+
+
+GUARD_RULE = (
+    "КРИТИЧНО: если клиент сказал здравствуйте/добрый день/алло/слушаю/да/удобно — "
+    "ему удобно говорить. НЕ спрашивай когда перезвонить. Сразу про потребность в перевозках."
+)
+
+
 class ScriptUpdate(BaseModel):
     agent_name: str = "Александра"
     company: str = "МультиГлобал Групп"
@@ -167,14 +229,24 @@ async def ollama_chat(
     messages: list[dict[str, str]],
     temperature: float,
 ) -> str:
+    # больше CPU-потоков = быстрее на сервере без GPU
+    n_threads = max(4, (os.cpu_count() or 8))
     payload = {
         "model": model,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature, "num_predict": 90},
+        "keep_alive": "60m",
+        "options": {
+            "temperature": temperature,
+            "num_predict": 55,
+            "num_ctx": 1024,
+            "num_thread": n_threads,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1,
+        },
     }
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(f"{base_url.rstrip('/')}/api/chat", json=payload)
             if r.status_code >= 400:
                 raise HTTPException(502, f"Ollama error: {r.text[:400]}")
@@ -464,8 +536,28 @@ async def chat(body: ChatIn) -> dict[str, Any]:
     user_text = body.message.strip()
     messages.append({"role": "user", "content": user_text})
 
+    user_turns = sum(1 for m in messages if m.get("role") == "user")
+    fast = quick_reply(user_text, user_turns)
+    if fast:
+        spoken, flag = fast
+        messages.append({"role": "assistant", "content": spoken})
+        SESSIONS[sid] = messages
+        return {
+            "session_id": sid,
+            "reply": spoken,
+            "flag": flag,
+            "agent_name": script.get("agent_name", "Бот"),
+            "voice_style_applied": False,
+            "fast_path": True,
+        }
+
     # для запроса — с подсказкой стиля, в сессии храним чистый текст
     send_messages = list(messages)
+    # усиливаем правило на каждом ходе
+    send_messages[0] = {
+        "role": "system",
+        "content": f"{script['system_prompt']}\n\n{GUARD_RULE}",
+    }
     hint = style_from_profile(body.voice_profile)
     if hint:
         send_messages[-1] = {
@@ -474,17 +566,28 @@ async def chat(body: ChatIn) -> dict[str, Any]:
         }
 
     # обрезаем историю
-    send_messages = [send_messages[0]] + send_messages[1:][-10:]
+    send_messages = [send_messages[0]] + send_messages[1:][-8:]
 
     reply_raw = await ollama_chat(
         script.get("ollama_url", "http://127.0.0.1:11434"),
         script.get("ollama_model", "qwen2.5:3b"),
         send_messages,
-        float(script.get("temperature", 0.45)),
+        float(script.get("temperature", 0.35)),
     )
     spoken, flag = clean_flags(reply_raw)
     if not spoken:
-        spoken = "Поняла вас. Подскажите, пожалуйста, ещё раз?"
+        spoken = "Понял вас. Подскажите, пожалуйста, ещё раз?"
+
+    # страховка: модель снова ушла в «перезвонить» после приветствия
+    low = _norm(spoken)
+    if user_turns <= 1 and "перезвон" in low and any(
+        x in _norm(user_text) for x in ("здравств", "здрасств", "добрый", "алло", "слушаю")
+    ):
+        spoken = (
+            "Отлично. Возим по Беларуси, России, СНГ, Европе, Турции и Китаю. "
+            "Вы сами организуете перевозки или лучше к логисту?"
+        )
+        flag = None
 
     messages.append({"role": "assistant", "content": spoken})
     SESSIONS[sid] = messages
@@ -495,6 +598,7 @@ async def chat(body: ChatIn) -> dict[str, Any]:
         "flag": flag,
         "agent_name": script.get("agent_name", "Бот"),
         "voice_style_applied": bool(hint),
+        "fast_path": False,
     }
 
 
