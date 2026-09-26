@@ -86,7 +86,10 @@ button.ghost {
 }
 button:disabled { opacity: .55; cursor: wait; }
 
-.chat-head { display: flex; justify-content: space-between; align-items: center; }
+.chat-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.chat-head-actions { display: flex; gap: 8px; align-items: center; }
+.hidden { display: none !important; }
+button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
 .chat {
   height: min(52vh, 520px);
   overflow: auto;

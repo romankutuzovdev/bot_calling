@@ -8,6 +8,118 @@ let voiceProfile = null;
 let currentAudio = null;
 let ttsVoice = "ru-RU-SvetlanaNeural";
 let ttsEngine = "elevenlabs";
+let audioUnlocked = false;
+let pendingAudioUrl = null;
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  try {
+    const a = new Audio();
+    a.src =
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+    a.volume = 0.01;
+    a.play().catch(() => {});
+  } catch {}
+}
+
+function showPlayButton(show) {
+  const b = $("btnPlayAudio");
+  if (!b) return;
+  if (show) b.classList.remove("hidden");
+  else b.classList.add("hidden");
+}
+
+async function playUrl(url) {
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+    } catch {}
+  }
+  const audio = new Audio(url);
+  currentAudio = audio;
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    showPlayButton(false);
+    pendingAudioUrl = null;
+  };
+  await audio.play();
+  showPlayButton(false);
+  pendingAudioUrl = null;
+}
+
+async function speak(text) {
+  if (!text) return;
+  const status = $("saveStatus");
+  try {
+    if (currentAudio) {
+      currentAudio.pause();
+      try {
+        URL.revokeObjectURL(currentAudio.src);
+      } catch {}
+      currentAudio = null;
+    }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+    if (ttsEngine === "clone" && status) {
+      status.textContent = "Генерация голоса (CPU)…";
+    }
+    if (ttsEngine === "elevenlabs" && status) {
+      status.textContent = "ElevenLabs…";
+    }
+
+    const voiceForApi =
+      ttsEngine === "elevenlabs"
+        ? ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice
+        : ttsVoice;
+
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: voiceForApi, engine: ttsEngine }),
+    });
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(errText || r.statusText);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    pendingAudioUrl = url;
+    if (status) status.textContent = "";
+
+    try {
+      await playUrl(url);
+    } catch (playErr) {
+      // Браузер блокирует autoplay до клика пользователя — TTS уже OK
+      const m = String(playErr && playErr.message ? playErr.message : playErr);
+      if (/interact|NotAllowedError|play\(\)/i.test(m)) {
+        showPlayButton(true);
+        if (status) status.textContent = "Нажмите «▶ Слушать»";
+        return;
+      }
+      throw playErr;
+    }
+  } catch (e) {
+    console.warn("TTS failed", e);
+    if (status) status.textContent = "";
+    const msg = String(e && e.message ? e.message : e);
+    if (/interact|NotAllowedError|play\(\)/i.test(msg)) {
+      showPlayButton(true);
+      return;
+    }
+    if (ttsEngine === "clone" || ttsEngine === "elevenlabs") {
+      alert(
+        (ttsEngine === "elevenlabs" ? "ElevenLabs не сработал.\n\n" : "Клон XTTS не сработал.\n\n") +
+          msg.slice(0, 500)
+      );
+      return;
+    }
+    if (!window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ru-RU";
+    speechSynthesis.speak(u);
+  }
+}
 
 async function api(path, opts = {}) {
   const r = await fetch(path, {
@@ -74,68 +186,11 @@ function updateTtsHint() {
   if (!hint) return;
   if (ttsEngine === "elevenlabs") {
     hint.textContent =
-      "Модель eleven_multilingual_v2 — лучший русский без запинок. Для голоса Андрея сделайте Instant Voice Clone и вставьте Voice ID.";
+      "Модель eleven_multilingual_v2. Если звук не играет сам — нажмите «▶ Слушать» (ограничение браузера).";
   } else if (ttsEngine === "clone") {
     hint.textContent = "Локальный XTTS — медленно на CPU.";
   } else {
     hint.textContent = "Microsoft Neural — быстро, не ваш голос.";
-  }
-}
-
-async function speak(text) {
-  if (!text) return;
-  const status = $("saveStatus");
-  try {
-    if (currentAudio) {
-      currentAudio.pause();
-      URL.revokeObjectURL(currentAudio.src);
-      currentAudio = null;
-    }
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-
-    if (ttsEngine === "clone" && status) {
-      status.textContent = "Генерация голоса (CPU)…";
-    }
-    if (ttsEngine === "elevenlabs" && status) {
-      status.textContent = "ElevenLabs…";
-    }
-
-    const voiceForApi =
-      ttsEngine === "elevenlabs"
-        ? ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice
-        : ttsVoice;
-
-    const r = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: voiceForApi, engine: ttsEngine }),
-    });
-    if (!r.ok) {
-      const errText = await r.text();
-      throw new Error(errText || r.statusText);
-    }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    currentAudio = audio;
-    audio.onended = () => URL.revokeObjectURL(url);
-    if (status) status.textContent = "";
-    await audio.play();
-  } catch (e) {
-    console.warn("TTS failed", e);
-    if (status) status.textContent = "";
-    const msg = String(e && e.message ? e.message : e);
-    if (ttsEngine === "clone" || ttsEngine === "elevenlabs") {
-      alert(
-        (ttsEngine === "elevenlabs" ? "ElevenLabs не сработал.\n\n" : "Клон XTTS не сработал.\n\n") +
-          msg.slice(0, 500)
-      );
-      return;
-    }
-    if (!window.speechSynthesis) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "ru-RU";
-    speechSynthesis.speak(u);
   }
 }
 
