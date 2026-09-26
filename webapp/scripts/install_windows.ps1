@@ -62,8 +62,10 @@ Write-Host "==> Web deps (fastapi, edge-tts)" -ForegroundColor Cyan
 pip install -r webapp\requirements-web.txt
 
 Write-Host "==> PyTorch CPU + XTTS (large download, wait)" -ForegroundColor Cyan
+# torch from pytorch index; everything else from PyPI (IMPORTANT: use --extra-index-url, not only --index-url)
 pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-pip install -r webapp\requirements-xtts-cpu.txt
+pip install encodec einops "numpy<2" soundfile
+pip install "coqui-tts>=0.27.0,<0.28" "transformers>=4.40,<5"
 
 $env:COQUI_TOS_AGREED = "1"
 $env:CUDA_VISIBLE_DEVICES = ""

@@ -1,11 +1,14 @@
-# XTTS на Windows Server (только CPU)
+# XTTS on Windows CPU
+# Install order matters — see commands below / install_windows.ps1
 #
-# Ставьте ПОСЛЕ webapp\requirements-web.txt
-# Не ставьте CUDA-сборку torch, если нет NVIDIA GPU.
+#   pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r webapp/requirements-xtts-cpu.txt
+#
+# Do NOT leave pip pointed only at the pytorch index (encodec lives on PyPI).
 
-torch==2.8.0
-torchaudio==2.8.0
-coqui-tts>=0.27.0
-transformers>=4.57,<5
+coqui-tts>=0.27.0,<0.28
+transformers>=4.40,<5
 numpy>=1.24,<2.0
 soundfile>=0.12.1
+einops>=0.6
+encodec>=0.1.1
