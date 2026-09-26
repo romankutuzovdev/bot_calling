@@ -10,34 +10,48 @@ import httpx
 
 DEFAULT_MODEL = "eleven_multilingual_v2"
 API_BASE = "https://api.elevenlabs.io/v1"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_PATH = PROJECT_ROOT / ".env"
 
 _GEO_HINT = (
-    "ElevenLabs блокирует IP вашей страны (302/403 geo-block). "
-    "Нужен HTTPS-прокси из разрешённой страны: "
-    "добавьте в .env строку ELEVENLABS_PROXY=http://user:pass@host:port "
-    "или включите VPN на сервере. Пока — используйте Edge/XTTS."
+    "ElevenLabs geo-blocks this server IP (302/403). "
+    "Set ELEVENLABS_PROXY=http://user:pass@host:port in .env "
+    "(EU/US proxy) or use VPN. Meanwhile use Edge/XTTS."
 )
+
+
+def _read_env_file() -> dict[str, str]:
+    """Parse .env (UTF-8 with/without BOM)."""
+    out: dict[str, str] = {}
+    if not ENV_PATH.exists():
+        return out
+    try:
+        text = ENV_PATH.read_text(encoding="utf-8-sig")
+    except Exception:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip().lstrip("\ufeff")] = v.strip().strip('"').strip("'")
+    return out
 
 
 def resolve_api_key(explicit: str | None = None) -> str | None:
     key = (explicit or "").strip() or os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if key:
         return key
+    key = (_read_env_file().get("ELEVENLABS_API_KEY") or "").strip()
+    if key:
+        return key
     try:
-        for p in (
-            Path(__file__).resolve().parent / "data" / "secrets.json",
-            Path(__file__).resolve().parents[1] / ".env",
-        ):
-            if p.name == ".env" and p.exists():
-                for line in p.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if line.startswith("ELEVENLABS_API_KEY="):
-                        return line.split("=", 1)[1].strip().strip('"').strip("'")
-            elif p.suffix == ".json" and p.exists():
-                data = json.loads(p.read_text(encoding="utf-8"))
-                k = (data.get("elevenlabs_api_key") or "").strip()
-                if k:
-                    return k
+        secrets = Path(__file__).resolve().parent / "data" / "secrets.json"
+        if secrets.exists():
+            data = json.loads(secrets.read_text(encoding="utf-8"))
+            k = (data.get("elevenlabs_api_key") or "").strip()
+            if k:
+                return k
     except Exception:
         pass
     return None
@@ -48,16 +62,20 @@ def resolve_proxy() -> str | None:
         val = (os.environ.get(env_name) or "").strip()
         if val:
             return val
+    return (_read_env_file().get("ELEVENLABS_PROXY") or "").strip() or None
+
+
+def proxy_host_hint() -> str | None:
+    p = resolve_proxy()
+    if not p:
+        return None
+    # hide credentials: scheme://user:pass@host:port -> host:port
     try:
-        env_path = Path(__file__).resolve().parents[1] / ".env"
-        if env_path.exists():
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("ELEVENLABS_PROXY="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+        if "@" in p:
+            return p.rsplit("@", 1)[-1]
+        return p.split("://", 1)[-1]
     except Exception:
-        pass
-    return None
+        return "(set)"
 
 
 def _client(timeout: float) -> httpx.AsyncClient:
@@ -85,7 +103,9 @@ def _raise_if_geo_blocked(status: int, content: bytes) -> None:
         or "302 moved" in text
         or "help.elevenlabs.io" in text
     ):
-        raise RuntimeError(_GEO_HINT)
+        hint = proxy_host_hint()
+        extra = f" Current proxy: {hint}." if hint else " No ELEVENLABS_PROXY loaded."
+        raise RuntimeError(_GEO_HINT + extra)
 
 
 async def synthesize_mp3(
@@ -127,8 +147,8 @@ async def synthesize_mp3(
             r = await client.post(url, headers=headers, json=payload)
     except httpx.RequestError as exc:
         raise RuntimeError(
-            f"Нет доступа к api.elevenlabs.io с сервера: {exc}. "
-            "Проверьте интернет/firewall или задайте ELEVENLABS_PROXY."
+            f"Cannot reach api.elevenlabs.io: {exc}. "
+            "Check ELEVENLABS_PROXY or network."
         ) from exc
 
     content = r.content or b""
@@ -139,13 +159,13 @@ async def synthesize_mp3(
         raise RuntimeError(f"HTTP {r.status_code} ({ct}): {_preview(content)}")
 
     if not content:
-        raise RuntimeError("ElevenLabs вернул пустое тело ответа")
+        raise RuntimeError("ElevenLabs returned empty body")
 
     if content[:3] == b"ID3" or (content[0] == 0xFF and (content[1] & 0xE0) == 0xE0):
         return content
 
     raise RuntimeError(
-        f"Ожидали mp3, получили {len(content)} байт, Content-Type={ct}: {_preview(content)}"
+        f"Expected mp3, got {len(content)} bytes, Content-Type={ct}: {_preview(content)}"
     )
 
 
@@ -155,7 +175,7 @@ async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str
         async with _client(timeout) as client:
             r = await client.get(f"{API_BASE}/voices", headers=headers)
     except httpx.RequestError as exc:
-        raise RuntimeError(f"Нет доступа к api.elevenlabs.io: {exc}") from exc
+        raise RuntimeError(f"Cannot reach api.elevenlabs.io: {exc}") from exc
 
     content = r.content or b""
     _raise_if_geo_blocked(r.status_code, content)
@@ -163,13 +183,13 @@ async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}: {_preview(content)}")
     if not content.strip():
-        raise RuntimeError("Пустой ответ /v1/voices (firewall/прокси?)")
+        raise RuntimeError("Empty /v1/voices body")
 
     try:
         data = r.json()
     except Exception as exc:
         raise RuntimeError(
-            f"Ответ /v1/voices не JSON ({len(content)} байт): {_preview(content)}"
+            f"/v1/voices not JSON ({len(content)} bytes): {_preview(content)}"
         ) from exc
 
     out: list[dict[str, str]] = []
@@ -187,6 +207,16 @@ async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str
 async def check_key(api_key: str) -> dict[str, Any]:
     try:
         voices = await list_voices(api_key)
-        return {"ok": True, "voices": len(voices), "proxy": bool(resolve_proxy())}
+        return {
+            "ok": True,
+            "voices": len(voices),
+            "proxy": bool(resolve_proxy()),
+            "proxy_host": proxy_host_hint(),
+        }
     except Exception as exc:
-        return {"ok": False, "error": str(exc), "proxy": bool(resolve_proxy())}
+        return {
+            "ok": False,
+            "error": str(exc),
+            "proxy": bool(resolve_proxy()),
+            "proxy_host": proxy_host_hint(),
+        }
