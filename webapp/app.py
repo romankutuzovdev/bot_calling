@@ -472,19 +472,39 @@ async def list_voices() -> dict[str, Any]:
     }
 
 
+async def synthesize_edge_mp3(text: str, voice: str, rate: str) -> bytes:
+    try:
+        import edge_tts
+    except ImportError as exc:
+        raise HTTPException(500, "Установите edge-tts: pip install edge-tts") from exc
+    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+    buf = io.BytesIO()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            buf.write(chunk["data"])
+    audio = buf.getvalue()
+    if not audio:
+        raise HTTPException(502, "Edge TTS не вернул аудио")
+    return audio
+
+
 @app.post("/api/tts")
 async def tts(body: TtsIn) -> Response:
     """
     TTS engines:
-    - elevenlabs = облачный клон (быстро, платно)
+    - elevenlabs = облачный (нужен платный план для library voices)
     - clone / xtts = локальный XTTS
-    - edge = Microsoft Neural
+    - edge = Microsoft Neural (бесплатно, хороший русский женский)
     """
     script = load_script()
-    engine = (body.engine or script.get("tts_engine") or "elevenlabs").lower()
+    engine = (body.engine or script.get("tts_engine") or "edge").lower()
     text = " ".join(body.text.split())
     if not text:
         raise HTTPException(400, "Пустой текст")
+
+    edge_voice = body.voice if (body.voice or "").startswith("ru-RU-") else None
+    edge_voice = edge_voice or script.get("tts_voice") or "ru-RU-SvetlanaNeural"
+    edge_rate = body.rate or script.get("tts_rate") or "+8%"
 
     if engine in ("elevenlabs", "11labs", "eleven"):
         try:
@@ -493,19 +513,18 @@ async def tts(body: TtsIn) -> Response:
             from elevenlabs_tts import resolve_api_key, synthesize_mp3  # type: ignore
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
-        # пустой voice из UI не должен затирать сохранённый Voice ID
         raw_voice = (body.voice or "").strip()
         voice_id = raw_voice or (script.get("elevenlabs_voice_id") or "").strip()
         if not api_key:
             raise HTTPException(
                 400,
-                "Нет API key. На сервере создайте C:\\bot_calling\\.env с строкой ELEVENLABS_API_KEY=... "
-                "или вставьте ключ в UI и Сохранить.",
+                "Нет API key. Создайте C:\\bot_calling\\.env с ELEVENLABS_API_KEY=... "
+                "или вставьте ключ в UI. На Free плане library-голоса через API недоступны — выберите Edge.",
             )
         if not voice_id:
             raise HTTPException(
                 400,
-                "Нет Voice ID. Вставьте в UI (например JBFqnCBsd6RMkjVDRZzb для George) и Сохранить.",
+                "Нет Voice ID. На Free плане лучше голос Edge: ru-RU-SvetlanaNeural.",
             )
         try:
             audio = await synthesize_mp3(
@@ -515,6 +534,19 @@ async def tts(body: TtsIn) -> Response:
                 model_id=script.get("elevenlabs_model") or "eleven_multilingual_v2",
             )
         except Exception as exc:
+            err = str(exc)
+            # Free plan: library voices blocked → auto Edge female RU
+            if "402" in err or "paid_plan" in err.lower() or "payment_required" in err.lower():
+                audio = await synthesize_edge_mp3(text, "ru-RU-SvetlanaNeural", edge_rate)
+                return Response(
+                    content=audio,
+                    media_type="audio/mpeg",
+                    headers={
+                        "Cache-Control": "no-store",
+                        "X-TTS-Fallback": "edge-svetlana",
+                        "X-TTS-Fallback-Reason": "elevenlabs-paid-plan-required",
+                    },
+                )
             raise HTTPException(502, f"ElevenLabs: {exc}") from exc
         return Response(
             content=audio,
@@ -544,22 +576,8 @@ async def tts(body: TtsIn) -> Response:
             raise HTTPException(502, "XTTS не вернул аудио")
         return Response(content=wav, media_type="audio/wav")
 
-    # edge
-    voice = body.voice or script.get("tts_voice") or "ru-RU-SvetlanaNeural"
-    rate = body.rate or script.get("tts_rate") or "+8%"
-    try:
-        import edge_tts
-    except ImportError as exc:
-        raise HTTPException(500, "Установите edge-tts: pip install edge-tts") from exc
-
-    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
-    buf = io.BytesIO()
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            buf.write(chunk["data"])
-    audio = buf.getvalue()
-    if not audio:
-        raise HTTPException(502, "TTS не вернул аудио")
+    # edge (default free path)
+    audio = await synthesize_edge_mp3(text, edge_voice, edge_rate)
     return Response(content=audio, media_type="audio/mpeg")
 
 
