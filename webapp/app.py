@@ -164,6 +164,13 @@ def quick_reply(user_text: str, user_turn: int) -> tuple[str, str | None] | None
         if is_busy:
             return "Понимаю. Когда удобнее перезвонить — сегодня позже или завтра?", None
 
+    # повторное приветствие — не гоняем в LLM
+    if user_turn <= 3 and any(x in t for x in ("здравств", "здрасств", "добрый", "алло")):
+        return (
+            "Да, на связи. Вы сами организуете перевозки или лучше связаться с логистом?",
+            None,
+        )
+
     return None
 
 
@@ -287,12 +294,36 @@ async def ollama_warmup(base_url: str, model: str) -> None:
         pass
 
 
+async def resolve_ollama_model(base_url: str, wanted: str) -> str:
+    """Если модели нет (например 7b) — берём qwen2.5:3b или первую доступную."""
+    wanted = (wanted or "qwen2.5:3b").strip() or "qwen2.5:3b"
+    tags = await ollama_tags(base_url)
+    if not tags:
+        return wanted
+
+    def present(name: str) -> bool:
+        return any(name == t or t.startswith(name) or name in t for t in tags)
+
+    if present(wanted):
+        return wanted
+    for fallback in ("qwen2.5:3b", "qwen2.5:1.5b", "llama3.2:3b", "llama3.2"):
+        if present(fallback):
+            return fallback
+    # короткое имя без тега
+    short = wanted.split(":")[0]
+    for t in tags:
+        if t.startswith(short):
+            return t
+    return tags[0]
+
+
 async def ollama_chat(
     base_url: str,
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
 ) -> str:
+    model = await resolve_ollama_model(base_url, model)
     payload = {
         "model": model,
         "messages": messages,
@@ -304,14 +335,22 @@ async def ollama_chat(
         async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(f"{base_url.rstrip('/')}/api/chat", json=payload)
             if r.status_code >= 400:
-                raise HTTPException(502, f"Ollama error: {r.text[:400]}")
+                text = r.text[:400]
+                # ещё одна попытка на 3b
+                if "not found" in text.lower() and model != "qwen2.5:3b":
+                    payload["model"] = "qwen2.5:3b"
+                    r2 = await client.post(f"{base_url.rstrip('/')}/api/chat", json=payload)
+                    if r2.status_code >= 400:
+                        raise HTTPException(502, f"Ollama error: {r2.text[:400]}")
+                    return (r2.json().get("message") or {}).get("content", "").strip()
+                raise HTTPException(502, f"Ollama error: {text}")
             return (r.json().get("message") or {}).get("content", "").strip()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             503,
-            f"Ollama недоступна ({base_url}). Запустите Ollama и: ollama pull {model}. Детали: {exc}",
+            f"Ollama недоступна ({base_url}). Запустите Ollama и: ollama pull qwen2.5:3b. Детали: {exc}",
         ) from exc
 
 
