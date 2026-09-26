@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "mkdir -p public && cp -R webapp/static/. public/",
+  "outputDirectory": "public",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://91.149.133.54:8080/api/:path*"
+    },
+    {
+      "source": "/static/:path*",
+      "destination": "/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ]
+}

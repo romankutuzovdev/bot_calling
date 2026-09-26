@@ -60,6 +60,27 @@ def _load_secrets() -> None:
 _load_secrets()
 
 app = FastAPI(title="Bot Calling Web Tester", version="1.0.0")
+
+# CORS: Vercel UI may call API directly; rewrite proxy is same-origin
+from fastapi.middleware.cors import CORSMiddleware
+
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
 # session_id -> list of {role, content}

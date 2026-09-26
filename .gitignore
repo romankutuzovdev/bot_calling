@@ -49,6 +49,10 @@ htmlcov/
 .tmp/
 *.dmg
 *.zip
+cloudflared.exe
+certs/
+public/
+.vercel/
 
 # Local ML models (large)
 models/
