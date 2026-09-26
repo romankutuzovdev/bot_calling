@@ -244,27 +244,57 @@ async def ollama_tags(base_url: str) -> list[str]:
         return []
 
 
+def ollama_cpu_threads() -> int:
+    """Все логические ядра CPU (OLLAMA_NUM_THREAD переопределяет)."""
+    env = (os.environ.get("OLLAMA_NUM_THREAD") or os.environ.get("OLLAMA_NUM_THREADS") or "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    return max(1, os.cpu_count() or 8)
+
+
+def ollama_options(temperature: float) -> dict[str, Any]:
+    """Максимальная загрузка CPU на один запрос к LLM."""
+    n = ollama_cpu_threads()
+    return {
+        "temperature": temperature,
+        "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "55")),
+        "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "1024")),
+        "num_thread": n,
+        "num_gpu": 0,
+        "num_batch": int(os.environ.get("OLLAMA_NUM_BATCH", "512")),
+        "top_p": 0.9,
+        "repeat_penalty": 1.1,
+    }
+
+
+async def ollama_warmup(base_url: str, model: str) -> None:
+    """Держит модель в RAM и прогревает CPU-потоки."""
+    payload = {
+        "model": model,
+        "prompt": "ok",
+        "stream": False,
+        "keep_alive": "60m",
+        "options": {**ollama_options(0.0), "num_predict": 1},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            await client.post(f"{base_url.rstrip('/')}/api/generate", json=payload)
+    except Exception:
+        pass
+
+
 async def ollama_chat(
     base_url: str,
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
 ) -> str:
-    # больше CPU-потоков = быстрее на сервере без GPU
-    n_threads = max(4, (os.cpu_count() or 8))
     payload = {
         "model": model,
         "messages": messages,
         "stream": False,
         "keep_alive": "60m",
-        "options": {
-            "temperature": temperature,
-            "num_predict": 55,
-            "num_ctx": 1024,
-            "num_thread": n_threads,
-            "top_p": 0.9,
-            "repeat_penalty": 1.1,
-        },
+        "options": ollama_options(temperature),
     }
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -279,6 +309,17 @@ async def ollama_chat(
             503,
             f"Ollama недоступна ({base_url}). Запустите Ollama и: ollama pull {model}. Детали: {exc}",
         ) from exc
+
+
+@app.on_event("startup")
+async def _startup_warmup_ollama() -> None:
+    try:
+        script = load_script()
+        base = script.get("ollama_url", "http://127.0.0.1:11434")
+        model = script.get("ollama_model", "qwen2.5:3b")
+        asyncio.create_task(ollama_warmup(base, model))
+    except Exception:
+        pass
 
 
 @app.get("/")
@@ -339,6 +380,7 @@ async def health() -> dict[str, Any]:
         "ollama_url": base,
         "model": model,
         "models": models,
+        "ollama_cpu_threads": ollama_cpu_threads(),
         "port": 8080,
         "tts_engine": script.get("tts_engine", "elevenlabs"),
         "clone": clone_info,

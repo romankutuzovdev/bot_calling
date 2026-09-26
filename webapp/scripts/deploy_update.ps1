@@ -61,6 +61,11 @@ $env:PYTHONPATH = $RepoRoot
 $env:COQUI_TOS_AGREED = "1"
 $env:CUDA_VISIBLE_DEVICES = ""
 $env:TORCH_DEVICE = "cpu"
+# LLM: all CPU threads for one request
+$env:OLLAMA_NUM_PARALLEL = "1"
+$env:OLLAMA_NUM_THREAD = "$([Environment]::ProcessorCount)"
+$env:OLLAMA_NUM_BATCH = "512"
+$env:OLLAMA_KEEP_ALIVE = "60m"
 
 $logDir = Join-Path $RepoRoot "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null

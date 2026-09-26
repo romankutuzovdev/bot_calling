@@ -32,10 +32,16 @@ class OllamaChat:
         self.messages = [{"role": "system", "content": system_prompt}]
 
     def _options(self) -> dict[str, Any]:
+        import os
+
+        n = int(os.environ.get("OLLAMA_NUM_THREAD") or os.cpu_count() or 8)
         return {
             "temperature": self.temperature,
             "num_predict": self.num_predict,
             "num_ctx": self.num_ctx,
+            "num_thread": max(1, n),
+            "num_gpu": 0,
+            "num_batch": int(os.environ.get("OLLAMA_NUM_BATCH", "512")),
         }
 
     def ensure_alive(self) -> None:
