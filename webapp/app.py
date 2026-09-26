@@ -32,8 +32,15 @@ def _load_secrets() -> None:
 
     env_path = PROJECT_ROOT / ".env"
     if env_path.exists():
-        # utf-8-sig strips BOM from PowerShell Set-Content -Encoding UTF8
-        for line in env_path.read_text(encoding="utf-8-sig").splitlines():
+        raw = env_path.read_bytes()
+        text = ""
+        for enc in ("utf-8-sig", "utf-16", "utf-16-le", "cp1251"):
+            try:
+                text = raw.decode(enc)
+                break
+            except Exception:
+                continue
+        for line in text.splitlines():
             line = line.strip().lstrip("\ufeff")
             if not line or line.startswith("#") or "=" not in line:
                 continue

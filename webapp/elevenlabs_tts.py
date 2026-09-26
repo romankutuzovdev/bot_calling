@@ -21,13 +21,19 @@ _GEO_HINT = (
 
 
 def _read_env_file() -> dict[str, str]:
-    """Parse .env (UTF-8 with/without BOM)."""
+    """Parse .env (UTF-8/BOM/UTF-16 from PowerShell)."""
     out: dict[str, str] = {}
     if not ENV_PATH.exists():
         return out
-    try:
-        text = ENV_PATH.read_text(encoding="utf-8-sig")
-    except Exception:
+    raw_bytes = ENV_PATH.read_bytes()
+    text = ""
+    for enc in ("utf-8-sig", "utf-16", "utf-16-le", "cp1251"):
+        try:
+            text = raw_bytes.decode(enc)
+            break
+        except Exception:
+            continue
+    if not text:
         return out
     for raw in text.splitlines():
         line = raw.strip()
