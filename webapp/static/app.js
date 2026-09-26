@@ -40,14 +40,35 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
+function applyVoicePick(value) {
+  const v = value || "clone:andrey";
+  if (v.startsWith("clone:")) {
+    ttsEngine = "clone";
+    ttsVoice = "ru-RU-SvetlanaNeural";
+  } else if (v.startsWith("edge:")) {
+    ttsEngine = "edge";
+    ttsVoice = v.slice("edge:".length);
+  }
+  if ($("tts_engine")) $("tts_engine").value = ttsEngine;
+  if ($("tts_voice")) $("tts_voice").value = ttsVoice;
+  updateTtsHint();
+}
+
+function syncVoicePickFromState() {
+  const pick = $("tts_voice_pick");
+  if (!pick) return;
+  if (ttsEngine === "clone") pick.value = "clone:andrey";
+  else pick.value = `edge:${ttsVoice}`;
+}
+
 function updateTtsHint() {
   const hint = $("ttsHint");
   if (!hint) return;
   if (ttsEngine === "clone") {
     hint.textContent =
-      "XTTS генерирует речь с вашего сэмпла (voices/my_voice_22k.wav). На CPU фраза 20–90 сек — на быстром сервере будет быстрее. Первый запуск грузит модель.";
+      "Выбран Андрей (XTTS). Речь из voices/my_voice_22k.wav. На CPU 20–90 сек на фразу. Нужен pip install torch + coqui-tts.";
   } else {
-    hint.textContent = "Microsoft Neural — быстро, но стандартный голос, не ваш.";
+    hint.textContent = "Выбран Microsoft Neural — быстро, но не клон сэмпла.";
   }
 }
 
@@ -128,11 +149,14 @@ async function loadScript() {
   ttsEngine = s.tts_engine || "clone";
   if ($("tts_voice")) $("tts_voice").value = ttsVoice;
   if ($("tts_engine")) $("tts_engine").value = ttsEngine;
+  syncVoicePickFromState();
   updateTtsHint();
   agentName = s.agent_name || "Бот";
 }
 
 async function saveScript() {
+  const pick = $("tts_voice_pick");
+  if (pick) applyVoicePick(pick.value);
   ttsVoice = $("tts_voice").value;
   ttsEngine = $("tts_engine").value;
   const body = {
@@ -305,17 +329,19 @@ $("btnReset").onclick = () => resetCall().catch((e) => alert(e.message));
 $("btnSend").onclick = () => sendMessage();
 $("btnMic").onclick = () => toggleMic();
 $("btnTestVoice").onclick = () => {
-  ttsVoice = $("tts_voice").value;
-  ttsEngine = $("tts_engine").value;
-  speak("Здравствуйте! Меня зовут Александра, компания МультиГлобал Групп. Это пример клона голоса.");
+  const pick = $("tts_voice_pick");
+  if (pick) applyVoicePick(pick.value);
+  speak(
+    ttsEngine === "clone"
+      ? "Здравствуйте! Это тест клона голоса Андрея."
+      : "Здравствуйте! Это тест голоса Microsoft Neural."
+  );
 };
-$("tts_voice").onchange = () => {
-  ttsVoice = $("tts_voice").value;
-};
-$("tts_engine").onchange = () => {
-  ttsEngine = $("tts_engine").value;
-  updateTtsHint();
-};
+if ($("tts_voice_pick")) {
+  $("tts_voice_pick").onchange = () => {
+    applyVoicePick($("tts_voice_pick").value);
+  };
+}
 $("message").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
