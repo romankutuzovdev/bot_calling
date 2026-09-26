@@ -10,6 +10,10 @@ let ttsVoice = "ru-RU-SvetlanaNeural";
 let ttsEngine = "elevenlabs";
 let audioUnlocked = false;
 let pendingAudioUrl = null;
+let callActive = false;
+let botSpeaking = false;
+let listenTimer = null;
+let sendingVoice = false;
 
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -21,6 +25,34 @@ function unlockAudio() {
     a.volume = 0.01;
     a.play().catch(() => {});
   } catch {}
+}
+
+function setCallStatus(mode, text) {
+  const el = $("callStatus");
+  if (!el) return;
+  if (!mode) {
+    el.classList.add("hidden");
+    el.className = "call-status hidden";
+    el.textContent = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.className = "call-status " + mode;
+  el.textContent = text || "";
+}
+
+function updateCallButton() {
+  const b = $("btnReset");
+  if (!b) return;
+  if (callActive) {
+    b.textContent = "Завершить звонок";
+    b.classList.remove("primary");
+    b.classList.add("ghost");
+  } else {
+    b.textContent = "Начать звонок";
+    b.classList.add("primary");
+    b.classList.remove("ghost");
+  }
 }
 
 function showPlayButton(show) {
@@ -38,15 +70,23 @@ async function playUrl(url) {
   }
   const audio = new Audio(url);
   currentAudio = audio;
-  audio.onended = () => {
-    try {
-      URL.revokeObjectURL(url);
-    } catch {}
-    showPlayButton(false);
-    pendingAudioUrl = null;
-  };
-  await audio.play();
-  showPlayButton(false);
+  return new Promise((resolve, reject) => {
+    audio.onended = () => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+      showPlayButton(false);
+      pendingAudioUrl = null;
+      resolve();
+    };
+    audio.onerror = () => reject(new Error("audio play error"));
+    audio
+      .play()
+      .then(() => {
+        showPlayButton(false);
+      })
+      .catch(reject);
+  });
 }
 
 function sniffAudio(buf) {
@@ -58,16 +98,55 @@ function sniffAudio(buf) {
   return null;
 }
 
+function stopListening() {
+  if (listenTimer) {
+    clearTimeout(listenTimer);
+    listenTimer = null;
+  }
+  if (recognition && recognizing) {
+    try {
+      recognition.stop();
+    } catch {}
+  }
+}
+
+function scheduleListen() {
+  if (!callActive || botSpeaking) return;
+  if (listenTimer) clearTimeout(listenTimer);
+  listenTimer = setTimeout(() => {
+    listenTimer = null;
+    if (callActive && !botSpeaking && !sendingVoice) startListening();
+  }, 450);
+}
+
+async function startListening() {
+  if (!recognition || !callActive || botSpeaking || recognizing || sendingVoice) return;
+  setCallStatus("listening", "Слушаю вас… говорите");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    sampleVoiceProfile(stream).catch(() => {});
+    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 1400);
+  } catch (e) {
+    setCallStatus("listening", "Нет доступа к микрофону");
+    return;
+  }
+  try {
+    recognition.start();
+  } catch (e) {
+    // already started
+  }
+}
+
 async function speak(text) {
   if (!text) return;
   const status = $("saveStatus");
+  botSpeaking = true;
+  stopListening();
+  setCallStatus(callActive ? "speaking" : null, callActive ? "Бот говорит…" : "");
   try {
     if (currentAudio) {
-      currentAudio.pause();
       try {
-        if (currentAudio.src && currentAudio.src.startsWith("blob:")) {
-          URL.revokeObjectURL(currentAudio.src);
-        }
+        currentAudio.pause();
       } catch {}
       currentAudio = null;
     }
@@ -134,9 +213,17 @@ async function speak(text) {
       return;
     }
     if (!window.speechSynthesis) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "ru-RU";
-    speechSynthesis.speak(u);
+    await new Promise((resolve) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ru-RU";
+      u.onend = resolve;
+      u.onerror = resolve;
+      speechSynthesis.speak(u);
+    });
+  } finally {
+    botSpeaking = false;
+    if (callActive) scheduleListen();
+    else setCallStatus(null);
   }
 }
 
@@ -324,7 +411,20 @@ async function saveScript() {
   await refreshHealth();
 }
 
-async function resetCall() {
+async function endCall(reason) {
+  callActive = false;
+  stopListening();
+  botSpeaking = false;
+  updateCallButton();
+  setCallStatus(null);
+  if (reason) addBubble("bot", reason);
+}
+
+async function startCall() {
+  unlockAudio();
+  callActive = true;
+  updateCallButton();
+  setCallStatus("speaking", "Соединение…");
   $("chat").innerHTML = "";
   voiceProfile = null;
   $("profile").classList.add("hidden");
@@ -333,6 +433,22 @@ async function resetCall() {
   agentName = data.agent_name || agentName;
   addBubble("bot", data.opening);
   await speak(data.opening);
+  // speak() already schedules listen when callActive
+}
+
+async function resetCall() {
+  // тихий сброс без автослушания (для загрузки страницы)
+  callActive = false;
+  stopListening();
+  updateCallButton();
+  setCallStatus(null);
+  $("chat").innerHTML = "";
+  voiceProfile = null;
+  $("profile").classList.add("hidden");
+  const data = await api("/api/session/reset", { method: "POST" });
+  sessionId = data.session_id;
+  agentName = data.agent_name || agentName;
+  addBubble("bot", data.opening);
 }
 
 async function sendMessage(text) {
@@ -341,6 +457,8 @@ async function sendMessage(text) {
   $("message").value = "";
   addBubble("user", message);
   $("btnSend").disabled = true;
+  sendingVoice = true;
+  stopListening();
   try {
     const data = await api("/api/chat", {
       method: "POST",
@@ -349,18 +467,24 @@ async function sendMessage(text) {
         message,
         voice_profile: voiceProfile,
       }),
+      timeoutMs: 120000,
     });
     sessionId = data.session_id;
     agentName = data.agent_name || agentName;
     addBubble("bot", data.reply, data.flag);
     await speak(data.reply);
-    if (data.flag === "CLOSE_DEAL") addBubble("bot", "✓ Заявка зафиксирована");
-    if (data.flag === "END_CALL") addBubble("bot", "Звонок завершён");
+    if (data.flag === "CLOSE_DEAL") {
+      await endCall("✓ Заявка зафиксирована. Звонок завершён.");
+    } else if (data.flag === "END_CALL") {
+      await endCall("Звонок завершён.");
+    }
   } catch (e) {
     addBubble("bot", `Ошибка: ${e.message}`);
+    if (callActive) scheduleListen();
   } finally {
+    sendingVoice = false;
     $("btnSend").disabled = false;
-    $("message").focus();
+    if (!callActive) $("message").focus();
   }
 }
 
@@ -433,14 +557,22 @@ function initSpeech() {
   recognition.onstart = () => {
     recognizing = true;
     $("btnMic").classList.add("active");
+    if (callActive) setCallStatus("listening", "Слушаю вас… говорите");
   };
   recognition.onend = () => {
     recognizing = false;
     $("btnMic").classList.remove("active");
+    // в режиме звонка снова слушаем, если бот не говорит
+    if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
   };
-  recognition.onerror = () => {
+  recognition.onerror = (ev) => {
     recognizing = false;
     $("btnMic").classList.remove("active");
+    const err = ev && ev.error;
+    if (callActive && err !== "aborted" && err !== "no-speech") {
+      setCallStatus("listening", "Не расслышала, говорите ещё раз…");
+    }
+    if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
   };
   recognition.onresult = (ev) => {
     let finalText = "";
@@ -450,8 +582,12 @@ function initSpeech() {
       if (ev.results[i].isFinal) finalText += t;
       else interim += t;
     }
-    $("message").value = (finalText || interim).trim();
-    if (finalText.trim()) sendMessage(finalText.trim());
+    const shown = (finalText || interim).trim();
+    if (shown) $("message").value = shown;
+    if (finalText.trim()) {
+      stopListening();
+      sendMessage(finalText.trim());
+    }
   };
 }
 
@@ -459,6 +595,10 @@ async function toggleMic() {
   if (!recognition) return;
   if (recognizing) {
     recognition.stop();
+    return;
+  }
+  if (callActive) {
+    startListening();
     return;
   }
   try {
@@ -472,7 +612,11 @@ async function toggleMic() {
 $("btnSave").onclick = () => saveScript().catch((e) => alert(e.message));
 $("btnReset").onclick = () => {
   unlockAudio();
-  resetCall().catch((e) => alert(e.message));
+  if (callActive) {
+    endCall("Звонок завершён вами.");
+  } else {
+    startCall().catch((e) => alert(e.message));
+  }
 };
 $("btnSend").onclick = () => {
   unlockAudio();
@@ -497,7 +641,7 @@ $("btnTestVoice").onclick = () => {
   }
   speak(
     ttsEngine === "elevenlabs"
-      ? "Здравствуйте! Это тест голоса Андрея через ElevenLabs."
+      ? "Здравствуйте! Это тест голоса через ElevenLabs."
       : ttsEngine === "clone"
         ? "Здравствуйте! Это тест клона голоса XTTS."
         : "Здравствуйте! Это тест голоса Microsoft Neural."
@@ -518,6 +662,7 @@ document.addEventListener("click", () => unlockAudio(), { once: true });
 
 (async function boot() {
   initSpeech();
+  updateCallButton();
   try {
     await loadScript();
   } catch (e) {

@@ -125,6 +125,26 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 8px; }
 .mic-hint { margin-top: 8px; }
 
+.call-status {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #1a2430;
+  border: 1px solid #2f9e7a66;
+  color: #7ddeb8;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.call-status.listening {
+  border-color: #d45d5d88;
+  color: #f0a0a0;
+  animation: pulse 1.2s infinite;
+}
+.call-status.speaking {
+  border-color: #3d7eff88;
+  color: #b8d0ff;
+}
+
 .profile {
   margin: 0 0 8px;
   padding: 8px 10px;

@@ -78,19 +78,20 @@
           <h2>Тестовый звонок</h2>
           <div class="chat-head-actions">
             <button id="btnPlayAudio" class="ghost hidden" type="button">▶ Слушать</button>
-            <button id="btnReset" class="ghost">Новый звонок</button>
+            <button id="btnReset" class="primary" type="button">Начать звонок</button>
           </div>
         </div>
 
+        <div id="callStatus" class="call-status hidden">Ожидание…</div>
         <div id="profile" class="profile hidden">Голос: —</div>
         <div id="chat" class="chat"></div>
 
         <div class="composer">
-          <button id="btnMic" class="mic" title="Удерживайте или клик — голос">🎤</button>
-          <input id="message" type="text" placeholder="Напишите ответ клиента или говорите в микрофон…" />
-          <button id="btnSend" class="primary">Отправить</button>
+          <button id="btnMic" class="mic" title="Дописать голосом вручную" type="button">🎤</button>
+          <input id="message" type="text" placeholder="Или напишите ответ вручную…" />
+          <button id="btnSend" class="primary" type="button">Отправить</button>
         </div>
-        <p class="hint mic-hint">Голос: браузерный микрофон (Chrome/Edge). Текст появляется в поле, профиль голоса подстраивает тон.</p>
+        <p class="hint mic-hint">«Начать звонок» — бот говорит, затем слушает микрофон и отвечает голосом сам (Chrome/Edge).</p>
       </section>
     </main>
   </div>
