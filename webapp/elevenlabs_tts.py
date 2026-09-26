@@ -1,7 +1,9 @@
 """ElevenLabs Text-to-Speech (HTTP API)."""
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,11 +16,7 @@ def resolve_api_key(explicit: str | None = None) -> str | None:
     key = (explicit or "").strip() or os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if key:
         return key
-    # optional local secrets file (gitignored)
     try:
-        from pathlib import Path
-        import json
-
         for p in (
             Path(__file__).resolve().parent / "data" / "secrets.json",
             Path(__file__).resolve().parents[1] / ".env",
@@ -38,6 +36,15 @@ def resolve_api_key(explicit: str | None = None) -> str | None:
     return None
 
 
+def _preview(content: bytes, limit: int = 300) -> str:
+    if not content:
+        return "<empty body>"
+    try:
+        return content[:limit].decode("utf-8", errors="replace")
+    except Exception:
+        return repr(content[:limit])
+
+
 async def synthesize_mp3(
     text: str,
     *,
@@ -49,18 +56,13 @@ async def synthesize_mp3(
     style: float = 0.10,
     timeout: float = 60.0,
 ) -> bytes:
-    """Generate MP3 via ElevenLabs TTS.
-    stability↑ = меньше запинок/скачков, чуть менее эмоционально.
-    """
     text = " ".join(text.split()).strip()
     if not text:
         raise ValueError("empty text")
     if not voice_id.strip():
-        raise ValueError("elevenlabs_voice_id is empty — paste Voice ID from ElevenLabs")
+        raise ValueError("elevenlabs_voice_id is empty")
 
-    # короткие фразы без «рваных» многоточий — меньше спотыканий
     text = text.replace("…", ".").replace("...", ".")
-
     url = f"{API_BASE}/text-to-speech/{voice_id.strip()}"
     payload: dict[str, Any] = {
         "text": text,
@@ -77,23 +79,54 @@ async def synthesize_mp3(
         "Accept": "audio/mpeg",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, headers=headers, json=payload)
-        if r.status_code >= 400:
-            raise RuntimeError(f"ElevenLabs HTTP {r.status_code}: {r.text[:500]}")
-        audio = r.content
-        if not audio:
-            raise RuntimeError("ElevenLabs returned empty audio")
-        return audio
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.post(url, headers=headers, json=payload)
+    except httpx.RequestError as exc:
+        raise RuntimeError(
+            f"Нет доступа к api.elevenlabs.io с сервера: {exc}. "
+            "Проверьте интернет/firewall/прокси Windows."
+        ) from exc
+
+    content = r.content or b""
+    ct = (r.headers.get("content-type") or "").lower()
+
+    if r.status_code >= 400:
+        raise RuntimeError(f"HTTP {r.status_code} ({ct}): {_preview(content)}")
+
+    if not content:
+        raise RuntimeError("ElevenLabs вернул пустое тело ответа")
+
+    # валидный mp3: ID3 или frame sync
+    if content[:3] == b"ID3" or (content[0] == 0xFF and (content[1] & 0xE0) == 0xE0):
+        return content
+
+    raise RuntimeError(
+        f"Ожидали mp3, получили {len(content)} байт, Content-Type={ct}: {_preview(content)}"
+    )
 
 
 async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str]]:
-    headers = {"xi-api-key": api_key}
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.get(f"{API_BASE}/voices", headers=headers)
-        if r.status_code >= 400:
-            raise RuntimeError(f"ElevenLabs HTTP {r.status_code}: {r.text[:400]}")
+    headers = {"xi-api-key": api_key, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(f"{API_BASE}/voices", headers=headers)
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Нет доступа к api.elevenlabs.io: {exc}") from exc
+
+    content = r.content or b""
+    if r.status_code >= 400:
+        raise RuntimeError(f"HTTP {r.status_code}: {_preview(content)}")
+    if not content.strip():
+        raise RuntimeError("Пустой ответ /v1/voices (firewall/прокси?)")
+
+    try:
         data = r.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Ответ /v1/voices не JSON ({len(content)} байт): {_preview(content)}"
+        ) from exc
+
     out: list[dict[str, str]] = []
     for v in data.get("voices") or []:
         out.append(
