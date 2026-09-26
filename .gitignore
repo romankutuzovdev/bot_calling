@@ -54,7 +54,9 @@ models/
 # Voice samples & audio (не в git — копировать на сервер отдельно)
 voices/*
 !voices/.gitkeep
+!voices/my_voice_22k.wav
 *.wav
+!voices/my_voice_22k.wav
 *.mp3
 *.ogg
 *.flac
