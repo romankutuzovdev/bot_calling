@@ -301,19 +301,25 @@ async def tts(body: TtsIn) -> Response:
         raise HTTPException(400, "Пустой текст")
 
     if engine in ("elevenlabs", "11labs", "eleven"):
-        from webapp.elevenlabs_tts import resolve_api_key, synthesize_mp3
+        try:
+            from webapp.elevenlabs_tts import resolve_api_key, synthesize_mp3
+        except ImportError:
+            from elevenlabs_tts import resolve_api_key, synthesize_mp3  # type: ignore
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
-        voice_id = (body.voice or script.get("elevenlabs_voice_id") or "").strip()
+        # пустой voice из UI не должен затирать сохранённый Voice ID
+        raw_voice = (body.voice or "").strip()
+        voice_id = raw_voice or (script.get("elevenlabs_voice_id") or "").strip()
         if not api_key:
             raise HTTPException(
                 400,
-                "Нет ELEVENLABS_API_KEY. Задайте в UI или переменную окружения ELEVENLABS_API_KEY",
+                "Нет API key. На сервере создайте C:\\bot_calling\\.env с строкой ELEVENLABS_API_KEY=... "
+                "или вставьте ключ в UI и Сохранить.",
             )
         if not voice_id:
             raise HTTPException(
                 400,
-                "Нет elevenlabs_voice_id. Создайте Instant Voice Clone в ElevenLabs и вставьте Voice ID",
+                "Нет Voice ID. Вставьте в UI (например JBFqnCBsd6RMkjVDRZzb для George) и Сохранить.",
             )
         try:
             audio = await synthesize_mp3(
@@ -367,19 +373,50 @@ async def tts(body: TtsIn) -> Response:
     return Response(content=audio, media_type="audio/mpeg")
 
 
-@app.get("/api/elevenlabs/voices")
-async def elevenlabs_voices() -> dict[str, Any]:
-    from webapp.elevenlabs_tts import list_voices, resolve_api_key
+@app.get("/api/elevenlabs/ping")
+async def elevenlabs_ping() -> dict[str, Any]:
+    """Диагностика ключа и Voice ID без генерации длинного аудио."""
+    try:
+        from webapp.elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3
+    except ImportError:
+        from elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3  # type: ignore
 
     script = load_script()
     api_key = resolve_api_key(script.get("elevenlabs_api_key"))
+    voice_id = (script.get("elevenlabs_voice_id") or "").strip()
+    out: dict[str, Any] = {
+        "has_key": bool(api_key),
+        "voice_id": voice_id,
+        "model": script.get("elevenlabs_model") or "eleven_multilingual_v2",
+        "engine": script.get("tts_engine"),
+    }
     if not api_key:
-        raise HTTPException(400, "Нет API ключа ElevenLabs")
+        out["ok"] = False
+        out["error"] = "no api key (.env / secrets.json / UI)"
+        return out
+    chk = await check_key(api_key)
+    out["voices_api"] = chk
+    if not chk.get("ok"):
+        out["ok"] = False
+        out["error"] = chk.get("error")
+        return out
+    if not voice_id:
+        out["ok"] = False
+        out["error"] = "no voice_id"
+        return out
     try:
-        voices = await list_voices(api_key)
+        audio = await synthesize_mp3(
+            "Привет, это тест.",
+            api_key=api_key,
+            voice_id=voice_id,
+            model_id=out["model"],
+        )
+        out["ok"] = True
+        out["audio_bytes"] = len(audio)
     except Exception as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return {"voices": voices}
+        out["ok"] = False
+        out["error"] = str(exc)
+    return out
 
 
 @app.post("/api/session/reset")
