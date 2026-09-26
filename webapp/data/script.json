@@ -2,7 +2,7 @@
   "agent_name": "Александра",
   "company": "МультиГлобал Групп",
   "opening": "Здравствуйте! Меня зовут Александра, компания МультиГлобал Групп. Удобно буквально минуту по грузоперевозкам?",
-  "ollama_model": "qwen2.5:7b",
+  "ollama_model": "qwen2.5:3b",
   "ollama_url": "http://127.0.0.1:11434",
   "temperature": 0.35,
   "tts_engine": "elevenlabs",
