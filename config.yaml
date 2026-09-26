@@ -1,0 +1,64 @@
+# Локальный MVP голосового продавца
+
+product:
+  name: "FocusFlow"
+  price: "990 ₽/мес"
+  pitch: >
+    Онлайн-трекер привычек с ИИ-наставником: напоминания,
+    короткие планы на день и отчёты о прогрессе.
+  benefits:
+    - "За 2 минуты утром — план дня без прокрастинации"
+    - "Напоминания в нужный момент, не спам"
+    - "Пробный период 7 дней бесплатно"
+  objections:
+    expensive: "Есть пробный период 7 дней, отмена в один клик"
+    later: "Могу за 30 секунд объяснить, как это экономит час в день"
+    email: "Конечно, но сначала уточню одну деталь, чтобы прислать то, что нужно"
+
+agent:
+  name: "Аня"
+  company: "FocusFlow"
+  language: "ru"
+  max_turns: 12
+
+ollama:
+  base_url: "http://127.0.0.1:11434"
+  # Лёгкая модель с нормальным русским. Если есть 16+ ГБ RAM — поставьте qwen2.5:7b
+  model: "qwen2.5:3b"
+  temperature: 0.4
+  timeout_sec: 120
+  # Лимиты скорости: короче ответ = быстрее
+  num_predict: 80
+  num_ctx: 2048
+  keep_alive: "30m"
+
+whisper:
+  # tiny — быстрее всего (чуть хуже точность). base — баланс. small — точнее/медленнее
+  model_size: "tiny"
+  device: "cpu"
+  compute_type: "int8"
+  language: "ru"
+  cpu_threads: 4
+
+tts:
+  # edge = Microsoft | piper | clone | macos
+  engine: "edge"
+  voice: "ru-RU-DmitryNeural"
+  rate: "+10%"
+  model: "models/piper/ru_RU-denis-medium.onnx"
+  speaker_wav: "voices/my_voice_22k.wav"
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  # Секунды тишины после речи, чтобы закончить запись
+  silence_sec: 0.7
+  max_record_sec: 12
+  # Порог энергии (подстройте, если микрофон тихий/громкий)
+  energy_threshold: 0.015
+  min_speech_sec: 0.35
+  live: true
+
+modes:
+  # voice | text — text удобен для быстрой проверки без микрофона
+  default: "voice"

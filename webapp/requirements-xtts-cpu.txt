@@ -1,0 +1,11 @@
+# XTTS на Windows Server (только CPU)
+#
+# Ставьте ПОСЛЕ webapp\requirements-web.txt
+# Не ставьте CUDA-сборку torch, если нет NVIDIA GPU.
+
+torch==2.8.0
+torchaudio==2.8.0
+coqui-tts>=0.27.0
+transformers>=4.57,<5
+numpy>=1.24,<2.0
+soundfile>=0.12.1

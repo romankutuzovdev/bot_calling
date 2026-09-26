@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>МультиГлобал · тест бота</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <h1>Тест голосового бота</h1>
+        <p class="sub">МультиГлобал Групп · порт 8080 · Ollama</p>
+      </div>
+      <div id="health" class="health bad">Ollama: проверка…</div>
+    </header>
+
+    <main class="grid">
+      <section class="card script-card">
+        <h2>Скрипт разговора</h2>
+        <p class="hint">Здесь задаёте, <b>что бот должен спрашивать</b>. Сохраните — и тестируйте справа.</p>
+
+        <label>Имя агента</label>
+        <input id="agent_name" type="text" />
+
+        <label>Компания</label>
+        <input id="company" type="text" />
+
+        <label>Приветствие (первая фраза)</label>
+        <textarea id="opening" rows="3"></textarea>
+
+        <label>Системный скрипт (логика вопросов)</label>
+        <textarea id="system_prompt" rows="18"></textarea>
+
+        <div class="row">
+          <div>
+            <label>Модель Ollama</label>
+            <input id="ollama_model" type="text" />
+          </div>
+          <div>
+            <label>Ollama URL</label>
+            <input id="ollama_url" type="text" />
+          </div>
+        </div>
+
+        <label>Движок голоса</label>
+        <select id="tts_engine">
+          <option value="clone">XTTS — клон вашего голоса (CPU, медленно)</option>
+          <option value="edge">Microsoft Edge Neural (быстро)</option>
+        </select>
+        <p class="hint" id="ttsHint">XTTS генерирует речь с вашего сэмпла. На CPU фраза 20–90 сек; на мощном сервере быстрее.</p>
+
+        <label>Edge-голос (если выбран Microsoft)</label>
+        <select id="tts_voice">
+          <option value="ru-RU-SvetlanaNeural">Светлана — женский</option>
+          <option value="ru-RU-DariyaNeural">Дария — женский</option>
+          <option value="ru-RU-DmitryNeural">Дмитрий — мужской</option>
+        </select>
+
+        <div class="actions">
+          <button id="btnSave" class="primary">Сохранить скрипт</button>
+          <button id="btnTestVoice" class="ghost" type="button">Прослушать голос</button>
+          <span id="saveStatus" class="status"></span>
+        </div>
+        <p class="hint" id="cloneStatus">Сэмпл голоса: проверка…</p>
+      </section>
+
+      <section class="card chat-card">
+        <div class="chat-head">
+          <h2>Тестовый звонок</h2>
+          <button id="btnReset" class="ghost">Новый звонок</button>
+        </div>
+
+        <div id="profile" class="profile hidden">Голос: —</div>
+        <div id="chat" class="chat"></div>
+
+        <div class="composer">
+          <button id="btnMic" class="mic" title="Удерживайте или клик — голос">🎤</button>
+          <input id="message" type="text" placeholder="Напишите ответ клиента или говорите в микрофон…" />
+          <button id="btnSend" class="primary">Отправить</button>
+        </div>
+        <p class="hint mic-hint">Голос: браузерный микрофон (Chrome/Edge). Текст появляется в поле, профиль голоса подстраивает тон.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
