@@ -1,0 +1,18 @@
+# Do not upload Python/ML deps to Vercel — UI is static only
+.venv
+venv
+__pycache__
+*.pyc
+models
+voices
+logs
+actions-runner
+.env
+certs
+cloudflared.exe
+src
+scripts
+webapp/data
+requirements.txt
+requirements-*.txt
+webapp/requirements*.txt
