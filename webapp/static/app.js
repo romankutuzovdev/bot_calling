@@ -36,27 +36,26 @@ async function playUrl(url) {
       currentAudio.pause();
     } catch {}
   }
-  const audio = new Audio();
+  const audio = new Audio(url);
   currentAudio = audio;
-  await new Promise((resolve, reject) => {
-    audio.onended = () => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {}
-      showPlayButton(false);
-      pendingAudioUrl = null;
-      resolve();
-    };
-    audio.onerror = () => {
-      reject(new Error("Аудио не загрузилось (битый файл или неверный формат)"));
-    };
-    audio.oncanplaythrough = () => {
-      audio.play().then(resolve).catch(reject);
-    };
-    audio.src = url;
-    audio.load();
-  });
+  audio.onended = () => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {}
+    showPlayButton(false);
+    pendingAudioUrl = null;
+  };
+  await audio.play();
   showPlayButton(false);
+}
+
+function sniffAudio(buf) {
+  const u8 = new Uint8Array(buf.slice(0, 12));
+  if (u8[0] === 0xff && (u8[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  if (u8[0] === 0x49 && u8[1] === 0x44 && u8[2] === 0x33) return "audio/mpeg";
+  if (u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46) return "audio/wav";
+  if (u8[0] === 0x4f && u8[1] === 0x67 && u8[2] === 0x67 && u8[3] === 0x53) return "audio/ogg";
+  return null;
 }
 
 async function speak(text) {
@@ -90,31 +89,21 @@ async function speak(text) {
 
     const ct = (r.headers.get("content-type") || "").toLowerCase();
     const buf = await r.arrayBuffer();
+    const head = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 300));
 
-    if (!r.ok) {
-      let errText = "";
-      try {
-        errText = new TextDecoder().decode(buf);
-      } catch {
-        errText = r.statusText;
-      }
-      throw new Error(errText || r.statusText);
-    }
+    if (!r.ok) throw new Error(head || r.statusText);
     if (!buf.byteLength) {
-      throw new Error("Сервер вернул пустое аудио");
-    }
-    // если пришла JSON-ошибка под видом 200
-    if (ct.includes("application/json") || ct.includes("text/")) {
-      const errText = new TextDecoder().decode(buf);
-      throw new Error(errText.slice(0, 500));
+      throw new Error("Пустое аудио (0 байт). Проверьте API key, Voice ID и интернет сервера.");
     }
 
-    const mime = ct.includes("audio")
-      ? ct.split(";")[0].trim()
-      : ttsEngine === "clone"
-        ? "audio/wav"
-        : "audio/mpeg";
-    const blob = new Blob([buf], { type: mime });
+    const sniffed = sniffAudio(buf);
+    if (!sniffed) {
+      throw new Error(
+        "Ответ не аудио (" + buf.byteLength + " байт, Content-Type=" + ct + "):\n" + head
+      );
+    }
+
+    const blob = new Blob([buf], { type: sniffed });
     const url = URL.createObjectURL(blob);
     pendingAudioUrl = url;
     if (status) status.textContent = "";
@@ -123,12 +112,11 @@ async function speak(text) {
       await playUrl(url);
     } catch (playErr) {
       const m = String(playErr && playErr.message ? playErr.message : playErr);
-      if (/interact|NotAllowedError|play\(\)/i.test(m)) {
-        showPlayButton(true);
-        if (status) status.textContent = "Нажмите «▶ Слушать»";
-        return;
+      showPlayButton(true);
+      if (status) status.textContent = "Нажмите «▶ Слушать»";
+      if (!/interact|NotAllowedError|play\(\)/i.test(m)) {
+        console.warn("play failed, file looks valid — use ▶ Слушать", playErr);
       }
-      throw playErr;
     }
   } catch (e) {
     console.warn("TTS failed", e);
@@ -141,7 +129,7 @@ async function speak(text) {
     if (ttsEngine === "clone" || ttsEngine === "elevenlabs") {
       alert(
         (ttsEngine === "elevenlabs" ? "ElevenLabs не сработал.\n\n" : "Клон XTTS не сработал.\n\n") +
-          msg.slice(0, 500)
+          msg.slice(0, 800)
       );
       return;
     }
