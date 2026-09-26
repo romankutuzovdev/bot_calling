@@ -245,23 +245,27 @@ async def ollama_tags(base_url: str) -> list[str]:
 
 
 def ollama_cpu_threads() -> int:
-    """Все логические ядра CPU (OLLAMA_NUM_THREAD переопределяет)."""
+    """Не меньше 50% логических ядер, по умолчанию — все ядра."""
+    total = max(1, os.cpu_count() or 8)
+    floor = max(1, (total + 1) // 2)  # >= 50%
     env = (os.environ.get("OLLAMA_NUM_THREAD") or os.environ.get("OLLAMA_NUM_THREADS") or "").strip()
     if env.isdigit() and int(env) > 0:
-        return int(env)
-    return max(1, os.cpu_count() or 8)
+        return max(int(env), floor)
+    # все ядра — максимальная утилизация на один запрос
+    return total
 
 
 def ollama_options(temperature: float) -> dict[str, Any]:
-    """Максимальная загрузка CPU на один запрос к LLM."""
+    """Максимальная загрузка CPU на один запрос к LLM (>= ~50% машины)."""
     n = ollama_cpu_threads()
     return {
         "temperature": temperature,
-        "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "55")),
-        "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "1024")),
+        "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "64")),
+        "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "1536")),
         "num_thread": n,
         "num_gpu": 0,
-        "num_batch": int(os.environ.get("OLLAMA_NUM_BATCH", "512")),
+        "num_batch": int(os.environ.get("OLLAMA_NUM_BATCH", "1024")),
+        "top_k": 40,
         "top_p": 0.9,
         "repeat_penalty": 1.1,
     }
