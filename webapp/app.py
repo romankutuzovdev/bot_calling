@@ -26,6 +26,30 @@ STATIC = WEB_ROOT / "static"
 
 DATA.mkdir(parents=True, exist_ok=True)
 
+
+def _load_secrets() -> None:
+    import os
+
+    env_path = PROJECT_ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    secrets = DATA / "secrets.json"
+    if secrets.exists():
+        try:
+            s = json.loads(secrets.read_text(encoding="utf-8"))
+            if s.get("elevenlabs_api_key"):
+                os.environ.setdefault("ELEVENLABS_API_KEY", s["elevenlabs_api_key"])
+        except Exception:
+            pass
+
+
+_load_secrets()
+
 app = FastAPI(title="Bot Calling Web Tester", version="1.0.0")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
