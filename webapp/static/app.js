@@ -436,10 +436,26 @@ async function toggleMic() {
 }
 
 $("btnSave").onclick = () => saveScript().catch((e) => alert(e.message));
-$("btnReset").onclick = () => resetCall().catch((e) => alert(e.message));
-$("btnSend").onclick = () => sendMessage();
-$("btnMic").onclick = () => toggleMic();
+$("btnReset").onclick = () => {
+  unlockAudio();
+  resetCall().catch((e) => alert(e.message));
+};
+$("btnSend").onclick = () => {
+  unlockAudio();
+  sendMessage();
+};
+$("btnMic").onclick = () => {
+  unlockAudio();
+  toggleMic();
+};
+if ($("btnPlayAudio")) {
+  $("btnPlayAudio").onclick = () => {
+    unlockAudio();
+    if (pendingAudioUrl) playUrl(pendingAudioUrl).catch((e) => alert(e.message));
+  };
+}
 $("btnTestVoice").onclick = () => {
+  unlockAudio();
   const pick = $("tts_voice_pick");
   if (pick) applyVoicePick(pick.value);
   if (ttsEngine === "elevenlabs") {
@@ -459,8 +475,12 @@ if ($("tts_voice_pick")) {
   };
 }
 $("message").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendMessage();
+  if (e.key === "Enter") {
+    unlockAudio();
+    sendMessage();
+  }
 });
+document.addEventListener("click", () => unlockAudio(), { once: true });
 
 (async function boot() {
   initSpeech();
