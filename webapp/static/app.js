@@ -141,17 +141,31 @@ async function speak(text) {
 }
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    ...opts,
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(t || r.statusText);
+  const ctrl = new AbortController();
+  const ms = opts.timeoutMs || 12000;
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const { timeoutMs, ...fetchOpts } = opts;
+    const r = await fetch(path, {
+      headers: { "Content-Type": "application/json", ...(fetchOpts.headers || {}) },
+      signal: ctrl.signal,
+      ...fetchOpts,
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || r.statusText);
+    }
+    const ct = r.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return r.json();
+    return r;
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new Error(`Таймаут ${ms}мс: ${path} (бэкенд/Ollama не отвечают)`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  const ct = r.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return r.json();
-  return r;
 }
 
 function addBubble(role, text, flag = null) {
@@ -251,7 +265,8 @@ async function refreshHealth() {
     }
   } catch {
     el.className = "health bad";
-    el.textContent = "Ollama недоступна (http://127.0.0.1:11434)";
+    el.textContent =
+      "Ollama/API недоступны: " + String(err && err.message ? err.message : err).slice(0, 120);
   }
 }
 
@@ -503,8 +518,18 @@ document.addEventListener("click", () => unlockAudio(), { once: true });
 
 (async function boot() {
   initSpeech();
-  await loadScript();
+  try {
+    await loadScript();
+  } catch (e) {
+    console.error(e);
+    const st = $("saveStatus");
+    if (st) st.textContent = "Нет связи с API: " + String(e.message || e).slice(0, 100);
+  }
   await refreshHealth();
-  await resetCall();
+  try {
+    await resetCall();
+  } catch (e) {
+    console.error(e);
+  }
   setInterval(refreshHealth, 15000);
 })();
