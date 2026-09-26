@@ -165,13 +165,37 @@ async def health() -> dict[str, Any]:
     model = script.get("ollama_model", "qwen2.5:3b")
     models = await ollama_tags(base)
     ok = any(model in m or m.startswith(model.split(":")[0]) for m in models)
-    clone_info: dict[str, Any] = {"speaker_ok": False}
-    try:
-        from src.tts import clone_status
 
-        clone_info = clone_status(script.get("speaker_wav"))
-    except Exception as exc:
-        clone_info = {"speaker_ok": False, "error": str(exc)}
+    # Проверка сэмпла без тяжёлого import src.tts (rich/torch могут отсутствовать)
+    rel = script.get("speaker_wav") or "voices/my_voice_22k.wav"
+    candidates = [
+        PROJECT_ROOT / rel,
+        PROJECT_ROOT / "voices" / "my_voice_22k.wav",
+        Path(r"C:\bot_calling") / rel,
+        Path(r"C:\bot_calling\voices\my_voice_22k.wav"),
+    ]
+    speaker_path = None
+    for c in candidates:
+        try:
+            if c.is_file() and c.stat().st_size > 1000:
+                speaker_path = str(c.resolve())
+                break
+        except OSError:
+            continue
+
+    clone_info: dict[str, Any] = {
+        "engine": script.get("tts_engine", "clone"),
+        "device": "cpu",
+        "speaker_ok": speaker_path is not None,
+        "speaker_path": speaker_path or f"not found (looked under {PROJECT_ROOT / 'voices'})",
+        "root": str(PROJECT_ROOT),
+        "model_loaded": False,
+        "note": (
+            "Сэмпл найден"
+            if speaker_path
+            else "Положите WAV в voices\\my_voice_22k.wav и перезапустите бота"
+        ),
+    }
     return {
         "ok": ok,
         "ollama_url": base,
