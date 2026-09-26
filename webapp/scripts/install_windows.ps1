@@ -8,31 +8,48 @@ Set-Location $Root
 function Find-Ollama {
   $cmd = Get-Command ollama -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
+
   $candidates = @(
     "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
+    "$env:USERPROFILE\AppData\Local\Programs\Ollama\ollama.exe",
     "$env:ProgramFiles\Ollama\ollama.exe",
-    "${env:ProgramFiles(x86)}\Ollama\ollama.exe"
+    "${env:ProgramFiles(x86)}\Ollama\ollama.exe",
+    "C:\Program Files\Ollama\ollama.exe",
+    "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe"
   )
   foreach ($p in $candidates) {
     if (Test-Path $p) { return $p }
+  }
+
+  # Slow fallback search (common roots only)
+  $roots = @(
+    "$env:LOCALAPPDATA\Programs",
+    "$env:ProgramFiles",
+    "${env:ProgramFiles(x86)}"
+  )
+  foreach ($root in $roots) {
+    if (-not (Test-Path $root)) { continue }
+    $hit = Get-ChildItem -Path $root -Filter ollama.exe -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1 -ExpandProperty FullName
+    if ($hit) { return $hit }
   }
   return $null
 }
 
 Write-Host "==> Python check" -ForegroundColor Cyan
 python --version
-if ($LASTEXITCODE -ne 0) { throw "Python not found. Install Python 3.11+ with Add to PATH." }
 
 Write-Host "==> Ollama" -ForegroundColor Cyan
 $ollama = Find-Ollama
 if (-not $ollama) {
-  Write-Host "Ollama.exe not found. Install from https://ollama.com/download/windows" -ForegroundColor Yellow
-  Write-Host "Then open a NEW PowerShell and re-run this script." -ForegroundColor Yellow
-  Start-Process "https://ollama.com/download/windows"
-  exit 1
+  Write-Host "WARNING: ollama.exe not found in PATH." -ForegroundColor Yellow
+  Write-Host "Start Ollama from Start Menu, then run in a NEW PowerShell:" -ForegroundColor Yellow
+  Write-Host '  Get-ChildItem -Path $env:LOCALAPPDATA,$env:ProgramFiles -Filter ollama.exe -Recurse -ErrorAction SilentlyContinue'
+  Write-Host "Continuing install without ollama pull..." -ForegroundColor Yellow
+} else {
+  Write-Host "Using: $ollama"
+  & $ollama pull qwen2.5:3b
 }
-Write-Host "Using: $ollama"
-& $ollama pull qwen2.5:3b
 
 Write-Host "==> venv" -ForegroundColor Cyan
 if (-not (Test-Path ".venv")) {
