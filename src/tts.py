@@ -67,23 +67,64 @@ def warmup_clone(speaker_wav: str | None = None) -> None:
 
 
 def _resolve_speaker(speaker_wav: str | None) -> Path:
-    candidates = []
+    candidates: list[Path] = []
     if speaker_wav:
         p = Path(speaker_wav)
         candidates.append(p if p.is_absolute() else ROOT / p)
+        # Windows / cwd variants
+        candidates.append(Path.cwd() / p)
+        candidates.append(Path("C:/bot_calling") / p)
     candidates.extend(
         [
             ROOT / "voices" / "my_voice_22k.wav",
+            ROOT / "voices" / "andrey_22k.wav",
             ROOT / "voices" / "my_voice.wav",
+            Path.cwd() / "voices" / "my_voice_22k.wav",
+            Path("C:/bot_calling/voices/my_voice_22k.wav"),
         ]
     )
+    seen: set[str] = set()
     for ref in candidates:
-        if ref.exists():
-            return ref
+        key = str(ref.resolve()) if ref.exists() else str(ref)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if ref.is_file() and ref.stat().st_size > 1000:
+                return ref.resolve()
+        except OSError:
+            continue
+    checked = ", ".join(str(c) for c in candidates[:6])
     raise FileNotFoundError(
-        "Нет сэмпла голоса. Запишите: python -m src.record_voice\n"
-        "Ожидается voices/my_voice.wav"
+        "Нет сэмпла голоса. Ожидается voices/my_voice_22k.wav "
+        f"(искали: {checked}). Скопируйте файл или: python -m src.record_voice"
     )
+
+
+def clone_status(speaker_wav: str | None = None) -> dict:
+    """Статус клона: есть ли сэмпл, загружена ли модель."""
+    try:
+        ref = _resolve_speaker(speaker_wav)
+        return {
+            "engine": "clone",
+            "device": "cpu",
+            "speaker_ok": True,
+            "speaker_path": str(ref),
+            "root": str(ROOT),
+            "model_loaded": _xtts is not None,
+            "note": "На CPU фраза обычно 20–90 сек. На быстром сервере — ближе к нижней границе.",
+        }
+    except FileNotFoundError as exc:
+        return {
+            "engine": "clone",
+            "device": "cpu",
+            "speaker_ok": False,
+            "speaker_path": str(exc),
+            "root": str(ROOT),
+            "model_loaded": _xtts is not None,
+            "note": "Положите WAV в C:\\bot_calling\\voices\\my_voice_22k.wav и перезапустите бота.",
+        }
+
 
 
 def _get_xtts():
@@ -129,25 +170,6 @@ def synthesize_clone_bytes(
     """То же, что synthesize_clone_wav, но байты WAV для HTTP."""
     path = synthesize_clone_wav(text, speaker_wav=speaker_wav, language=language)
     return path.read_bytes()
-
-
-def clone_status(speaker_wav: str | None = None) -> dict:
-    """Статус клона: есть ли сэмпл, загружена ли модель."""
-    try:
-        ref = _resolve_speaker(speaker_wav)
-        speaker_ok = True
-        speaker_path = str(ref)
-    except FileNotFoundError as exc:
-        speaker_ok = False
-        speaker_path = str(exc)
-    return {
-        "engine": "clone",
-        "device": "cpu",
-        "speaker_ok": speaker_ok,
-        "speaker_path": speaker_path,
-        "model_loaded": _xtts is not None,
-        "note": "На CPU фраза обычно 20–90 сек. На быстром сервере — ближе к нижней границе.",
-    }
 
 
 def _speak_clone(text: str, speaker_wav: str | None) -> None:

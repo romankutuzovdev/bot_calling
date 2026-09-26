@@ -105,7 +105,10 @@ async function refreshHealth() {
     if (cs && h.clone) {
       cs.textContent = h.clone.speaker_ok
         ? `Сэмпл голоса OK: ${h.clone.speaker_path}`
-        : `Нет сэмпла — запишите: python -m src.record_voice`;
+        : `Нет сэмпла. ${h.clone.note || ""} Проверьте: dir C:\\bot_calling\\voices`;
+      if (!h.clone.speaker_ok && h.clone.root) {
+        cs.textContent += ` (root=${h.clone.root})`;
+      }
     }
   } catch {
     el.className = "health bad";
