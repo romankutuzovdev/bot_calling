@@ -66,10 +66,13 @@ class ScriptUpdate(BaseModel):
     ollama_model: str = "qwen2.5:3b"
     ollama_url: str = "http://127.0.0.1:11434"
     temperature: float = 0.45
-    tts_engine: str = "clone"  # clone = XTTS ваш голос | edge = Microsoft
+    tts_engine: str = "elevenlabs"  # elevenlabs | clone | edge
     tts_voice: str = "ru-RU-SvetlanaNeural"
     tts_rate: str = "+8%"
     speaker_wav: str = "voices/my_voice_22k.wav"
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = ""
+    elevenlabs_model: str = "eleven_multilingual_v2"
 
 
 class TtsIn(BaseModel):
@@ -184,7 +187,7 @@ async def health() -> dict[str, Any]:
             continue
 
     clone_info: dict[str, Any] = {
-        "engine": script.get("tts_engine", "clone"),
+        "engine": script.get("tts_engine", "elevenlabs"),
         "device": "cpu",
         "speaker_ok": speaker_path is not None,
         "speaker_path": speaker_path or f"not found (looked under {PROJECT_ROOT / 'voices'})",
@@ -196,30 +199,56 @@ async def health() -> dict[str, Any]:
             else "Положите WAV в voices\\my_voice_22k.wav и перезапустите бота"
         ),
     }
+    from webapp.elevenlabs_tts import resolve_api_key
+
+    el_key = resolve_api_key(script.get("elevenlabs_api_key"))
+    eleven = {
+        "configured": bool(el_key),
+        "voice_id": (script.get("elevenlabs_voice_id") or "").strip()[:12] + "…"
+        if (script.get("elevenlabs_voice_id") or "").strip()
+        else "",
+        "voice_id_set": bool((script.get("elevenlabs_voice_id") or "").strip()),
+    }
     return {
         "ok": ok,
         "ollama_url": base,
         "model": model,
         "models": models,
         "port": 8080,
-        "tts_engine": script.get("tts_engine", "clone"),
+        "tts_engine": script.get("tts_engine", "elevenlabs"),
         "clone": clone_info,
+        "elevenlabs": eleven,
     }
 
 
 @app.get("/api/script")
 async def get_script() -> dict[str, Any]:
-    return load_script()
+    data = load_script()
+    # не отдаём ключ в открытом виде
+    key = (data.get("elevenlabs_api_key") or "").strip()
+    data = dict(data)
+    data["elevenlabs_api_key_set"] = bool(key) or bool(
+        __import__("os").environ.get("ELEVENLABS_API_KEY")
+    )
+    if key:
+        data["elevenlabs_api_key"] = ""
+    return data
 
 
 @app.put("/api/script")
 async def put_script(body: ScriptUpdate) -> dict[str, Any]:
     current = load_script()
     data = body.model_dump()
-    # не затираем неизвестные поля
+    # пустой ключ в форме = не затирать сохранённый / env
+    if not (data.get("elevenlabs_api_key") or "").strip():
+        data.pop("elevenlabs_api_key", None)
     current.update(data)
     save_script(current)
-    return {"saved": True, "script": current}
+    safe = dict(current)
+    if safe.get("elevenlabs_api_key"):
+        safe["elevenlabs_api_key"] = ""
+        safe["elevenlabs_api_key_set"] = True
+    return {"saved": True, "script": safe}
 
 
 @app.get("/api/voices")
@@ -236,15 +265,42 @@ async def list_voices() -> dict[str, Any]:
 @app.post("/api/tts")
 async def tts(body: TtsIn) -> Response:
     """
-    TTS:
-    - clone = XTTS, генерация с вашего сэмпла (CPU, медленно, максимально «живой»)
-    - edge  = Microsoft Neural (быстро)
+    TTS engines:
+    - elevenlabs = облачный клон (быстро, платно)
+    - clone / xtts = локальный XTTS
+    - edge = Microsoft Neural
     """
     script = load_script()
-    engine = (body.engine or script.get("tts_engine") or "clone").lower()
+    engine = (body.engine or script.get("tts_engine") or "elevenlabs").lower()
     text = " ".join(body.text.split())
     if not text:
         raise HTTPException(400, "Пустой текст")
+
+    if engine in ("elevenlabs", "11labs", "eleven"):
+        from webapp.elevenlabs_tts import resolve_api_key, synthesize_mp3
+
+        api_key = resolve_api_key(script.get("elevenlabs_api_key"))
+        voice_id = (body.voice or script.get("elevenlabs_voice_id") or "").strip()
+        if not api_key:
+            raise HTTPException(
+                400,
+                "Нет ELEVENLABS_API_KEY. Задайте в UI или переменную окружения ELEVENLABS_API_KEY",
+            )
+        if not voice_id:
+            raise HTTPException(
+                400,
+                "Нет elevenlabs_voice_id. Создайте Instant Voice Clone в ElevenLabs и вставьте Voice ID",
+            )
+        try:
+            audio = await synthesize_mp3(
+                text,
+                api_key=api_key,
+                voice_id=voice_id,
+                model_id=script.get("elevenlabs_model") or "eleven_multilingual_v2",
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"ElevenLabs: {exc}") from exc
+        return Response(content=audio, media_type="audio/mpeg")
 
     if engine in ("clone", "xtts"):
         try:
@@ -252,7 +308,7 @@ async def tts(body: TtsIn) -> Response:
         except Exception as exc:
             raise HTTPException(
                 500,
-                f"XTTS не установлен. На сервере: pip install -r requirements.txt. ({exc})",
+                f"XTTS не установлен. На сервере: pip install coqui-tts (Python 3.12). ({exc})",
             ) from exc
         try:
             wav = await asyncio.to_thread(
@@ -268,7 +324,7 @@ async def tts(body: TtsIn) -> Response:
             raise HTTPException(502, "XTTS не вернул аудио")
         return Response(content=wav, media_type="audio/wav")
 
-    # fallback / edge
+    # edge
     voice = body.voice or script.get("tts_voice") or "ru-RU-SvetlanaNeural"
     rate = body.rate or script.get("tts_rate") or "+8%"
     try:
@@ -285,6 +341,21 @@ async def tts(body: TtsIn) -> Response:
     if not audio:
         raise HTTPException(502, "TTS не вернул аудио")
     return Response(content=audio, media_type="audio/mpeg")
+
+
+@app.get("/api/elevenlabs/voices")
+async def elevenlabs_voices() -> dict[str, Any]:
+    from webapp.elevenlabs_tts import list_voices, resolve_api_key
+
+    script = load_script()
+    api_key = resolve_api_key(script.get("elevenlabs_api_key"))
+    if not api_key:
+        raise HTTPException(400, "Нет API ключа ElevenLabs")
+    try:
+        voices = await list_voices(api_key)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"voices": voices}
 
 
 @app.post("/api/session/reset")

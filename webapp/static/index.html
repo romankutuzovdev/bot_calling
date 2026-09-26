@@ -46,15 +46,23 @@
 
         <label>Голос бота</label>
         <select id="tts_voice_pick">
-          <option value="clone:andrey">Андрей — клон (XTTS, ваш сэмпл)</option>
-          <option value="edge:ru-RU-SvetlanaNeural">Светлана — Microsoft Neural (быстро)</option>
-          <option value="edge:ru-RU-DariyaNeural">Дария — Microsoft Neural (быстро)</option>
-          <option value="edge:ru-RU-DmitryNeural">Дмитрий — Microsoft Neural (быстро)</option>
+          <option value="elevenlabs">Андрей — ElevenLabs (рекомендуется)</option>
+          <option value="clone:andrey">Андрей — XTTS локально (медленно)</option>
+          <option value="edge:ru-RU-SvetlanaNeural">Светлана — Microsoft Neural</option>
+          <option value="edge:ru-RU-DariyaNeural">Дария — Microsoft Neural</option>
+          <option value="edge:ru-RU-DmitryNeural">Дмитрий — Microsoft Neural</option>
         </select>
-        <p class="hint" id="ttsHint">Выберите «Андрей» чтобы говорить голосом из my_voice_22k.wav. На CPU генерация долгая.</p>
+        <p class="hint" id="ttsHint">ElevenLabs: быстрый живой клон. Нужны API key и Voice ID.</p>
 
-        <!-- legacy fields kept for save API -->
-        <input type="hidden" id="tts_engine" value="clone" />
+        <div id="elevenlabs_box">
+          <label>ElevenLabs API key</label>
+          <input id="elevenlabs_api_key" type="password" placeholder="xi-... или оставьте пустым если уже сохранён / в ENV" autocomplete="off" />
+          <label>ElevenLabs Voice ID (клон Андрея)</label>
+          <input id="elevenlabs_voice_id" type="text" placeholder="например abc123..." />
+          <p class="hint">Создайте Instant Voice Clone на elevenlabs.io → Voices → скопируйте Voice ID. Ключ: Profile → API Key.</p>
+        </div>
+
+        <input type="hidden" id="tts_engine" value="elevenlabs" />
         <input type="hidden" id="tts_voice" value="ru-RU-SvetlanaNeural" />
 
         <div class="actions">
@@ -62,7 +70,7 @@
           <button id="btnTestVoice" class="ghost" type="button">Прослушать голос</button>
           <span id="saveStatus" class="status"></span>
         </div>
-        <p class="hint" id="cloneStatus">Сэмпл голоса: проверка…</p>
+        <p class="hint" id="cloneStatus">Сэмпл / ElevenLabs: проверка…</p>
       </section>
 
       <section class="card chat-card">

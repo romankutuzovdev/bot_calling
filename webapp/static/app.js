@@ -7,7 +7,7 @@ let recognition = null;
 let voiceProfile = null;
 let currentAudio = null;
 let ttsVoice = "ru-RU-SvetlanaNeural";
-let ttsEngine = "clone";
+let ttsEngine = "elevenlabs";
 
 async function api(path, opts = {}) {
   const r = await fetch(path, {
@@ -41,8 +41,11 @@ function escapeHtml(s) {
 }
 
 function applyVoicePick(value) {
-  const v = value || "clone:andrey";
-  if (v.startsWith("clone:")) {
+  const v = value || "elevenlabs";
+  if (v === "elevenlabs" || v.startsWith("elevenlabs")) {
+    ttsEngine = "elevenlabs";
+    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || "";
+  } else if (v.startsWith("clone:")) {
     ttsEngine = "clone";
     ttsVoice = "ru-RU-SvetlanaNeural";
   } else if (v.startsWith("edge:")) {
@@ -51,24 +54,31 @@ function applyVoicePick(value) {
   }
   if ($("tts_engine")) $("tts_engine").value = ttsEngine;
   if ($("tts_voice")) $("tts_voice").value = ttsVoice;
+  const box = $("elevenlabs_box");
+  if (box) box.style.display = ttsEngine === "elevenlabs" ? "" : "none";
   updateTtsHint();
 }
 
 function syncVoicePickFromState() {
   const pick = $("tts_voice_pick");
   if (!pick) return;
-  if (ttsEngine === "clone") pick.value = "clone:andrey";
+  if (ttsEngine === "elevenlabs") pick.value = "elevenlabs";
+  else if (ttsEngine === "clone") pick.value = "clone:andrey";
   else pick.value = `edge:${ttsVoice}`;
+  const box = $("elevenlabs_box");
+  if (box) box.style.display = ttsEngine === "elevenlabs" ? "" : "none";
 }
 
 function updateTtsHint() {
   const hint = $("ttsHint");
   if (!hint) return;
-  if (ttsEngine === "clone") {
+  if (ttsEngine === "elevenlabs") {
     hint.textContent =
-      "Выбран Андрей (XTTS). Речь из voices/my_voice_22k.wav. На CPU 20–90 сек на фразу. Нужен pip install torch + coqui-tts.";
+      "Модель eleven_multilingual_v2 — лучший русский без запинок. Для голоса Андрея сделайте Instant Voice Clone и вставьте Voice ID.";
+  } else if (ttsEngine === "clone") {
+    hint.textContent = "Локальный XTTS — медленно на CPU.";
   } else {
-    hint.textContent = "Выбран Microsoft Neural — быстро, но не клон сэмпла.";
+    hint.textContent = "Microsoft Neural — быстро, не ваш голос.";
   }
 }
 
@@ -86,11 +96,19 @@ async function speak(text) {
     if (ttsEngine === "clone" && status) {
       status.textContent = "Генерация голоса (CPU)…";
     }
+    if (ttsEngine === "elevenlabs" && status) {
+      status.textContent = "ElevenLabs…";
+    }
+
+    const voiceForApi =
+      ttsEngine === "elevenlabs"
+        ? ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice
+        : ttsVoice;
 
     const r = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: ttsVoice, engine: ttsEngine }),
+      body: JSON.stringify({ text, voice: voiceForApi, engine: ttsEngine }),
     });
     if (!r.ok) {
       const errText = await r.text();
@@ -107,11 +125,10 @@ async function speak(text) {
     console.warn("TTS failed", e);
     if (status) status.textContent = "";
     const msg = String(e && e.message ? e.message : e);
-    if (ttsEngine === "clone") {
+    if (ttsEngine === "clone" || ttsEngine === "elevenlabs") {
       alert(
-        "Клон Андрея не сработал.\n\n" +
-          msg.slice(0, 500) +
-          "\n\nНужен XTTS: pip install torch + coqui-tts\nПока можно выбрать Светлану (Edge)."
+        (ttsEngine === "elevenlabs" ? "ElevenLabs не сработал.\n\n" : "Клон XTTS не сработал.\n\n") +
+          msg.slice(0, 500)
       );
       return;
     }
@@ -127,7 +144,12 @@ async function refreshHealth() {
   const cs = $("cloneStatus");
   try {
     const h = await api("/api/health");
-    const eng = h.tts_engine === "clone" ? "XTTS" : "Edge";
+    const eng =
+      h.tts_engine === "elevenlabs"
+        ? "ElevenLabs"
+        : h.tts_engine === "clone"
+          ? "XTTS"
+          : "Edge";
     if (h.ok) {
       el.className = "health ok";
       el.textContent = `Ollama OK · ${h.model} · голос: ${eng}`;
@@ -135,13 +157,23 @@ async function refreshHealth() {
       el.className = "health bad";
       el.textContent = `Ollama: нет модели ${h.model}. Установите: ollama pull ${h.model}`;
     }
-    if (cs && h.clone) {
-      cs.textContent = h.clone.speaker_ok
-        ? `Сэмпл голоса OK: ${h.clone.speaker_path}`
-        : `Нет сэмпла. ${h.clone.note || ""} Проверьте: dir C:\\bot_calling\\voices`;
-      if (!h.clone.speaker_ok && h.clone.root) {
-        cs.textContent += ` (root=${h.clone.root})`;
+    if (cs) {
+      const parts = [];
+      if (h.elevenlabs) {
+        parts.push(
+          h.elevenlabs.configured
+            ? `ElevenLabs API: OK${h.elevenlabs.voice_id_set ? " · Voice ID задан" : " · нужен Voice ID"}`
+            : "ElevenLabs: нет API key"
+        );
       }
+      if (h.clone) {
+        parts.push(
+          h.clone.speaker_ok
+            ? `Сэмпл XTTS OK`
+            : `Сэмпл XTTS: нет файла`
+        );
+      }
+      cs.textContent = parts.join(" · ");
     }
   } catch {
     el.className = "health bad";
@@ -158,9 +190,18 @@ async function loadScript() {
   $("ollama_model").value = s.ollama_model || "qwen2.5:3b";
   $("ollama_url").value = s.ollama_url || "http://127.0.0.1:11434";
   ttsVoice = s.tts_voice || "ru-RU-SvetlanaNeural";
-  ttsEngine = s.tts_engine || "clone";
+  ttsEngine = s.tts_engine || "elevenlabs";
   if ($("tts_voice")) $("tts_voice").value = ttsVoice;
   if ($("tts_engine")) $("tts_engine").value = ttsEngine;
+  if ($("elevenlabs_voice_id")) {
+    $("elevenlabs_voice_id").value = s.elevenlabs_voice_id || "";
+  }
+  if ($("elevenlabs_api_key")) {
+    $("elevenlabs_api_key").placeholder = s.elevenlabs_api_key_set
+      ? "ключ уже сохранён — введите новый чтобы заменить"
+      : "xi-... API key";
+    $("elevenlabs_api_key").value = "";
+  }
   syncVoicePickFromState();
   updateTtsHint();
   agentName = s.agent_name || "Бот";
@@ -183,6 +224,9 @@ async function saveScript() {
     tts_voice: ttsVoice,
     tts_rate: "+8%",
     speaker_wav: "voices/my_voice_22k.wav",
+    elevenlabs_api_key: ($("elevenlabs_api_key") && $("elevenlabs_api_key").value.trim()) || "",
+    elevenlabs_voice_id: ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || "",
+    elevenlabs_model: "eleven_multilingual_v2",
   };
   await api("/api/script", { method: "PUT", body: JSON.stringify(body) });
   agentName = body.agent_name;
@@ -343,10 +387,15 @@ $("btnMic").onclick = () => toggleMic();
 $("btnTestVoice").onclick = () => {
   const pick = $("tts_voice_pick");
   if (pick) applyVoicePick(pick.value);
+  if (ttsEngine === "elevenlabs") {
+    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice;
+  }
   speak(
-    ttsEngine === "clone"
-      ? "Здравствуйте! Это тест клона голоса Андрея."
-      : "Здравствуйте! Это тест голоса Microsoft Neural."
+    ttsEngine === "elevenlabs"
+      ? "Здравствуйте! Это тест голоса Андрея через ElevenLabs."
+      : ttsEngine === "clone"
+        ? "Здравствуйте! Это тест клона голоса XTTS."
+        : "Здравствуйте! Это тест голоса Microsoft Neural."
   );
 };
 if ($("tts_voice_pick")) {
