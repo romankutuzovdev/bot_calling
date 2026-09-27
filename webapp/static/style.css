@@ -158,8 +158,8 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 320px;
-  padding: 28px 16px;
+  min-height: 200px;
+  padding: 18px 16px;
   border-radius: 16px;
   background:
     radial-gradient(ellipse at 50% 20%, #1e3a2f55, transparent 55%),
@@ -224,14 +224,12 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
 }
 
 .chat-log {
-  max-height: 220px;
+  max-height: 280px;
   margin-top: 8px;
-  opacity: 0.85;
+  opacity: 1;
 }
-.composer-manual { opacity: 0.55; }
-.chat-card.in-call .composer-manual,
+.chat-card.in-call .composer-manual { opacity: 1; }
 .chat-card.in-call .mic-hint { display: none; }
-.chat-card.in-call #profile { display: none; }
 
 .profile {
   margin: 0 0 8px;

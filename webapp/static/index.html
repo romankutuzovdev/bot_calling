@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>МультиГлобал · тест бота</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=call2" />
 </head>
 <body>
   <div class="app">
@@ -102,17 +102,17 @@
         </div>
 
         <div id="profile" class="profile hidden">Голос: —</div>
-        <div id="chat" class="chat chat-log hidden"></div>
+        <div id="chat" class="chat chat-log"></div>
 
         <div id="composerBox" class="composer composer-manual">
-          <button id="btnMic" class="mic" title="Только для ручного режима" type="button">🎤</button>
-          <input id="message" type="text" placeholder="Ручной текст (не нужен во время звонка)…" />
+          <button id="btnMic" class="mic" title="Микрофон" type="button">🎤</button>
+          <input id="message" type="text" placeholder="Говорите — текст появится здесь, или введите вручную…" />
           <button id="btnSend" class="primary" type="button">Отправить</button>
         </div>
-        <p class="hint mic-hint" id="callHint">Реальный диалог: бот говорит → вы отвечаете голосом → бот снова говорит. Chrome/Edge, разрешите микрофон.</p>
+        <p class="hint mic-hint" id="callHint">Звонок нон-стоп: бот говорит → вы отвечаете → текст пишется в лог → бот снова говорит. Chrome/Edge, разрешите микрофон.</p>
       </section>
     </main>
   </div>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=call2"></script>
 </body>
 </html>

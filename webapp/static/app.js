@@ -78,7 +78,10 @@ function updateCallButton() {
     b.textContent = "Сбросить трубку";
     b.classList.remove("primary");
     b.classList.add("ghost");
-    if (logBtn) logBtn.classList.remove("hidden");
+    if (logBtn) {
+      logBtn.classList.remove("hidden");
+      logBtn.textContent = "Скрыть текст";
+    }
   } else {
     b.textContent = "Начать звонок";
     b.classList.add("primary");
@@ -143,29 +146,34 @@ function stopListening() {
 }
 
 function scheduleListen() {
-  if (!callActive || botSpeaking) return;
+  if (!callActive || botSpeaking || sendingVoice) return;
   if (listenTimer) clearTimeout(listenTimer);
   listenTimer = setTimeout(() => {
     listenTimer = null;
     if (callActive && !botSpeaking && !sendingVoice) startListening();
-  }, 450);
+  }, 350);
 }
 
 async function startListening() {
   if (!recognition || !callActive || botSpeaking || recognizing || sendingVoice) return;
   setCallStatus("listening", "Слушаю вас… говорите");
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    sampleVoiceProfile(stream).catch(() => {});
-    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 1400);
-  } catch (e) {
-    setCallStatus("listening", "Нет доступа к микрофону");
-    return;
-  }
-  try {
     recognition.start();
   } catch (e) {
-    // already started
+    // already started — retry shortly
+    scheduleListen();
+  }
+}
+
+async function ensureMicOnce() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    sampleVoiceProfile(stream).catch(() => {});
+    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 900);
+    return true;
+  } catch (e) {
+    setCallStatus("listening", "Нет доступа к микрофону — разрешите в браузере");
+    return false;
   }
 }
 
@@ -547,6 +555,7 @@ async function endCall(reason) {
   callActive = false;
   stopListening();
   botSpeaking = false;
+  sendingVoice = false;
   updateCallButton();
   setLiveCaption("", false);
   const card = document.querySelector(".chat-card");
@@ -562,22 +571,38 @@ async function endCall(reason) {
 async function startCall() {
   unlockAudio();
   callActive = true;
-  showLog = false;
-  if ($("chat")) $("chat").classList.add("hidden");
+  showLog = true;
+  if ($("chat")) $("chat").classList.remove("hidden");
   updateCallButton();
   syncPhoneHeader();
   setCallStatus("speaking", "Соединение…");
   setLiveCaption("", false);
   $("chat").innerHTML = "";
+  if ($("message")) $("message").value = "";
   voiceProfile = null;
   $("profile").classList.add("hidden");
-  const data = await api("/api/session/reset", { method: "POST" });
-  sessionId = data.session_id;
-  agentName = data.agent_name || agentName;
-  syncPhoneHeader();
-  addBubble("bot", data.opening);
-  setLiveCaption("", false);
-  await speak(data.opening);
+
+  const micOk = await ensureMicOnce();
+  if (!micOk) {
+    callActive = false;
+    updateCallButton();
+    return;
+  }
+
+  try {
+    const data = await api("/api/session/reset", { method: "POST" });
+    sessionId = data.session_id;
+    agentName = data.agent_name || agentName;
+    syncPhoneHeader();
+    addBubble("bot", data.opening);
+    setLiveCaption(data.opening, true);
+    await speak(data.opening);
+  } catch (e) {
+    addBubble("bot", "Ошибка старта: " + (e.message || e));
+    setCallStatus("listening", "Не удалось начать — попробуйте ещё раз");
+    callActive = false;
+    updateCallButton();
+  }
 }
 
 async function resetCall() {
@@ -589,7 +614,7 @@ async function resetCall() {
   const card = document.querySelector(".chat-card");
   if (card) card.classList.remove("in-call");
   $("chat").innerHTML = "";
-  if ($("chat")) $("chat").classList.add("hidden");
+  if ($("chat")) $("chat").classList.remove("hidden");
   voiceProfile = null;
   $("profile").classList.add("hidden");
   try {
@@ -612,7 +637,7 @@ async function sendMessage(text) {
   stopListening();
   if (callActive) {
     setCallStatus("thinking", "Думает…");
-    setLiveCaption("", false);
+    setLiveCaption("Вы: " + message, true);
   }
   try {
     const data = await api("/api/chat", {
@@ -627,6 +652,7 @@ async function sendMessage(text) {
     sessionId = data.session_id;
     agentName = data.agent_name || agentName;
     addBubble("bot", data.reply, data.flag);
+    if (callActive) setLiveCaption(data.reply, true);
     await speak(data.reply);
     if (data.flag === "CLOSE_DEAL") {
       await endCall("Заявка зафиксирована. До свидания!");
@@ -720,14 +746,15 @@ function initSpeech() {
   recognition.onend = () => {
     recognizing = false;
     $("btnMic").classList.remove("active");
-    // в режиме звонка снова слушаем, если бот не говорит
+    // нон-стоп: снова слушаем, пока звонок идёт
     if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
   };
   recognition.onerror = (ev) => {
     recognizing = false;
     $("btnMic").classList.remove("active");
     const err = ev && ev.error;
-    if (callActive && err !== "aborted" && err !== "no-speech") {
+    // no-speech / aborted — нормально, просто перезапускаем
+    if (callActive && err && err !== "aborted" && err !== "no-speech") {
       setCallStatus("listening", "Не расслышала, говорите ещё раз…");
     }
     if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
@@ -740,12 +767,10 @@ function initSpeech() {
       if (ev.results[i].isFinal) finalText += t;
       else interim += t;
     }
-    // Во время звонка не пишем голос в текстовое поле — только статус «слушаю»
-    if (!callActive) {
-      const shown = (finalText || interim).trim();
-      if (shown) $("message").value = shown;
-    } else if (interim.trim() && !finalText.trim()) {
-      setCallStatus("listening", "Слушаю…");
+    const shown = (finalText || interim).trim();
+    if (shown) {
+      if ($("message")) $("message").value = shown;
+      if (callActive) setLiveCaption("Вы: " + shown, true);
     }
     if (finalText.trim()) {
       stopListening();
@@ -764,12 +789,10 @@ async function toggleMic() {
     startListening();
     return;
   }
+  await ensureMicOnce();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    sampleVoiceProfile(stream).catch(() => {});
-    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 1500);
+    recognition.start();
   } catch {}
-  recognition.start();
 }
 
 $("btnSave").onclick = () => saveScript().catch((e) => alert(e.message));
@@ -780,7 +803,7 @@ if ($("btnToggleLog")) {
     if (!chat) return;
     if (showLog) chat.classList.remove("hidden");
     else chat.classList.add("hidden");
-    $("btnToggleLog").textContent = showLog ? "Скрыть текст" : "Расшифровка";
+    $("btnToggleLog").textContent = showLog ? "Скрыть текст" : "Показать текст";
   };
 }
 $("btnReset").onclick = () => {
