@@ -621,36 +621,40 @@ async def tts(body: TtsIn) -> Response:
 
 @app.get("/api/elevenlabs/ping")
 async def elevenlabs_ping() -> dict[str, Any]:
-    """Диагностика ключа и Voice ID без генерации длинного аудио."""
+    """Диагностика ключа и Voice ID без падения 500."""
+    out: dict[str, Any] = {"ok": False}
     try:
-        from webapp.elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3
-    except ImportError:
-        from elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3  # type: ignore
+        try:
+            from webapp.elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3
+        except ImportError:
+            from elevenlabs_tts import check_key, resolve_api_key, synthesize_mp3  # type: ignore
 
-    script = load_script()
-    api_key = resolve_api_key(script.get("elevenlabs_api_key"))
-    voice_id = (script.get("elevenlabs_voice_id") or "").strip()
-    out: dict[str, Any] = {
-        "has_key": bool(api_key),
-        "voice_id": voice_id,
-        "model": script.get("elevenlabs_model") or "eleven_multilingual_v2",
-        "engine": script.get("tts_engine"),
-    }
-    if not api_key:
-        out["ok"] = False
-        out["error"] = "no api key (.env / secrets.json / UI)"
-        return out
-    chk = await check_key(api_key)
-    out["voices_api"] = chk
-    if not chk.get("ok"):
-        out["ok"] = False
-        out["error"] = chk.get("error")
-        return out
-    if not voice_id:
-        out["ok"] = False
-        out["error"] = "no voice_id"
-        return out
-    try:
+        try:
+            script = load_script()
+        except Exception as exc:
+            out["error"] = f"script.json broken: {exc}"
+            return out
+
+        api_key = resolve_api_key(script.get("elevenlabs_api_key"))
+        voice_id = (script.get("elevenlabs_voice_id") or "").strip() or "FZGeNF7bE3syeQOynDKC"
+        out.update(
+            {
+                "has_key": bool(api_key),
+                "voice_id": voice_id,
+                "model": script.get("elevenlabs_model") or "eleven_multilingual_v2",
+                "engine": script.get("tts_engine"),
+            }
+        )
+        if not api_key:
+            out["error"] = "no api key (.env / secrets.json / UI)"
+            return out
+
+        chk = await check_key(api_key)
+        out["voices_api"] = chk
+        if not chk.get("ok"):
+            out["error"] = chk.get("error")
+            return out
+
         audio = await synthesize_mp3(
             "Привет, это тест.",
             api_key=api_key,
@@ -659,10 +663,11 @@ async def elevenlabs_ping() -> dict[str, Any]:
         )
         out["ok"] = True
         out["audio_bytes"] = len(audio)
+        return out
     except Exception as exc:
         out["ok"] = False
         out["error"] = str(exc)
-    return out
+        return out
 
 
 @app.post("/api/session/reset")
