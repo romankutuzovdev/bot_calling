@@ -531,7 +531,11 @@ async def tts(body: TtsIn) -> Response:
         try:
             voice_id = await pick_api_voice_id(api_key, preferred or None)
         except Exception as exc:
-            raise HTTPException(400, f"ElevenLabs голоса: {exc}") from exc
+            err = str(exc)
+            if preferred and ("voices_read" in err or "missing_permissions" in err):
+                voice_id = preferred
+            else:
+                raise HTTPException(400, f"ElevenLabs голоса: {exc}") from exc
 
         # сохранить выбранный ID, если был library/пустой
         if voice_id and voice_id != preferred:

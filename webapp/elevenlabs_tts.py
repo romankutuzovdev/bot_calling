@@ -261,9 +261,20 @@ async def check_key(api_key: str) -> dict[str, Any]:
             "proxy_host": proxy_host_hint(),
         }
     except Exception as exc:
+        err = str(exc)
+        # ключ может уметь только TTS без voices_read
+        if "voices_read" in err or "missing_permissions" in err:
+            return {
+                "ok": True,
+                "voices": None,
+                "voices_list_skipped": True,
+                "note": "no voices_read — skip list, TTS may still work",
+                "proxy": bool(resolve_proxy()),
+                "proxy_host": proxy_host_hint(),
+            }
         return {
             "ok": False,
-            "error": str(exc),
+            "error": err,
             "proxy": bool(resolve_proxy()),
             "proxy_host": proxy_host_hint(),
         }
