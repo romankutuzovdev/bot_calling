@@ -348,7 +348,7 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
   .sub { font-size: 0.85rem; }
 
   .row { grid-template-columns: 1fr; }
-  #system_prompt { rows: 10; min-height: 160px; max-height: 40vh; }
+  #system_prompt { min-height: 160px; max-height: 40vh; }
 
   .phone-stage {
     min-height: 180px;
@@ -420,3 +420,14 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
   button.primary:hover { filter: none; }
   button:active.primary { filter: brightness(1.1); }
 }
+
+/* Desktop: script always open, no toggle */
+@media (min-width: 981px) {
+  .script-toggle { display: none !important; }
+  .script-card.is-collapsed .script-body,
+  .script-body { display: block !important; }
+}
+@media (max-width: 980px) {
+  .script-desktop-title { display: none; }
+}
+

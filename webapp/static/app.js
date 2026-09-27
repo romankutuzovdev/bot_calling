@@ -814,6 +814,15 @@ async function toggleMic() {
 }
 
 $("btnSave").onclick = () => saveScript().catch((e) => alert(e.message));
+if ($("btnToggleScript")) {
+  $("btnToggleScript").onclick = () => {
+    const card = $("scriptCard");
+    if (!card) return;
+    card.classList.toggle("is-collapsed");
+    const collapsed = card.classList.contains("is-collapsed");
+    $("btnToggleScript").setAttribute("aria-expanded", collapsed ? "false" : "true");
+  };
+}
 if ($("btnToggleLog")) {
   $("btnToggleLog").onclick = () => {
     showLog = !showLog;
