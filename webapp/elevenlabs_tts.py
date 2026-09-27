@@ -212,8 +212,8 @@ async def list_voices(api_key: str, timeout: float = 30.0) -> list[dict[str, str
 
 async def pick_api_voice_id(api_key: str, preferred: str | None = None) -> str:
     """
-    Free plan blocks Voice Library via API.
-    Prefer: cloned / generated / professional (свои), then preferred, then any.
+    Free plan blocks Voice Library via API (premade + many professional).
+    Only cloned/generated usually work without paid plan.
     """
     voices = await list_voices(api_key)
     if not voices:
@@ -225,30 +225,24 @@ async def pick_api_voice_id(api_key: str, preferred: str | None = None) -> str:
     preferred = (preferred or "").strip()
     by_id = {v["voice_id"]: v for v in voices if v.get("voice_id")}
 
-    def rank(v: dict[str, str]) -> int:
-        cat = v.get("category") or ""
-        if cat in ("cloned", "generated"):
-            return 0
-        if cat == "professional":
-            return 1
-        if cat == "premade":
-            return 9
-        return 5
+    def is_own(v: dict[str, str]) -> bool:
+        return (v.get("category") or "") in ("cloned", "generated")
 
-    owned = sorted(voices, key=rank)
-    # свой клон / сгенерированный
-    for v in owned:
-        if rank(v) <= 1 and v.get("voice_id"):
-            return v["voice_id"]
+    own = [v for v in voices if is_own(v) and v.get("voice_id")]
+    if own:
+        if preferred and any(v["voice_id"] == preferred for v in own):
+            return preferred
+        return own[0]["voice_id"]
 
-    if preferred and preferred in by_id and (by_id[preferred].get("category") or "") != "premade":
-        return preferred
-
-    # последний шанс — preferred даже если premade (на платном сработает)
+    # нет своего клона — preferred всё равно пробуем (на платном сработает)
     if preferred:
         return preferred
 
-    return owned[0]["voice_id"]
+    raise RuntimeError(
+        "Нет своего клона (cloned/generated). Victoria и premade на Free через API "
+        "недоступны (402). Создайте Instant Voice Clone: Voices → Add → загрузите "
+        "женский WAV, скопируйте Voice ID."
+    )
 
 
 async def check_key(api_key: str) -> dict[str, Any]:
