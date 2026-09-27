@@ -2,9 +2,11 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1419" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>МультиГлобал · тест бота</title>
-  <link rel="stylesheet" href="/static/style.css?v=listen3" />
+  <link rel="stylesheet" href="/static/style.css?v=mobile1" />
 </head>
 <body>
   <div class="app">
@@ -17,21 +19,26 @@
     </header>
 
     <main class="grid">
-      <section class="card script-card">
-        <h2>Скрипт разговора</h2>
+      <section class="card script-card is-collapsed" id="scriptCard">
+        <button type="button" class="script-toggle" id="btnToggleScript" aria-expanded="false">
+          <span>Скрипт и настройки</span>
+          <span class="chevron" aria-hidden="true">▼</span>
+        </button>
+        <div class="script-body">
+        <h2 class="script-desktop-title">Скрипт разговора</h2>
         <p class="hint">Здесь задаёте, <b>что бот должен спрашивать</b>. Сохраните — и тестируйте справа.</p>
 
         <label>Имя агента</label>
-        <input id="agent_name" type="text" />
+        <input id="agent_name" type="text" autocomplete="name" />
 
         <label>Компания</label>
-        <input id="company" type="text" />
+        <input id="company" type="text" autocomplete="organization" />
 
         <label>Приветствие (первая фраза)</label>
         <textarea id="opening" rows="3"></textarea>
 
         <label>Системный скрипт (логика вопросов)</label>
-        <textarea id="system_prompt" rows="18"></textarea>
+        <textarea id="system_prompt" rows="12"></textarea>
 
         <div class="row">
           <div>
@@ -40,7 +47,7 @@
           </div>
           <div>
             <label>Ollama URL</label>
-            <input id="ollama_url" type="text" />
+            <input id="ollama_url" type="text" inputmode="url" />
           </div>
         </div>
 
@@ -68,6 +75,7 @@
           <span id="saveStatus" class="status"></span>
         </div>
         <p class="hint" id="cloneStatus">ElevenLabs: проверка…</p>
+        </div>
       </section>
 
       <section class="card chat-card">
@@ -95,14 +103,14 @@
         <div id="chat" class="chat chat-log"></div>
 
         <div id="composerBox" class="composer composer-manual">
-          <button id="btnMic" class="mic" title="Микрофон" type="button">🎤</button>
-          <input id="message" type="text" placeholder="Говорите — текст появится здесь, или введите вручную…" />
+          <button id="btnMic" class="mic" title="Микрофон" type="button" aria-label="Микрофон">🎤</button>
+          <input id="message" type="text" enterkeyhint="send" autocomplete="off" placeholder="Говорите или введите текст…" />
           <button id="btnSend" class="primary" type="button">Отправить</button>
         </div>
-        <p class="hint mic-hint" id="callHint">Звонок нон-стоп: бот говорит → вы отвечаете → текст пишется в лог → бот снова говорит. Chrome/Edge, разрешите микрофон.</p>
+        <p class="hint mic-hint" id="callHint">Звонок нон-стоп: бот говорит → вы отвечаете → текст в лог. Chrome/Edge, разрешите микрофон.</p>
       </section>
     </main>
   </div>
-  <script src="/static/app.js?v=listen3"></script>
+  <script src="/static/app.js?v=mobile1"></script>
 </body>
 </html>
