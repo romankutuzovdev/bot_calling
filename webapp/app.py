@@ -263,18 +263,19 @@ def ollama_cpu_threads() -> int:
 
 
 def ollama_options(temperature: float) -> dict[str, Any]:
-    """Максимальная загрузка CPU на один запрос к LLM (>= ~50% машины)."""
+    """Максимум потоков CPU + короткие ответы для быстрого телефонного диалога."""
     n = ollama_cpu_threads()
     return {
         "temperature": temperature,
-        "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "64")),
-        "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "1536")),
+        # короткие реплики — меньше токенов = быстрее
+        "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "48")),
+        "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "1024")),
         "num_thread": n,
         "num_gpu": 0,
         "num_batch": int(os.environ.get("OLLAMA_NUM_BATCH", "1024")),
-        "top_k": 40,
-        "top_p": 0.9,
-        "repeat_penalty": 1.1,
+        "top_k": 30,
+        "top_p": 0.85,
+        "repeat_penalty": 1.05,
     }
 
 
