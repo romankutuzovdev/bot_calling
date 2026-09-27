@@ -445,13 +445,14 @@ async function loadScript() {
   syncVoicePickFromState();
   updateTtsHint();
   agentName = s.agent_name || "Бот";
+  await loadElevenLabsVoices();
 }
 
 async function saveScript() {
   const pick = $("tts_voice_pick");
-  if (pick) applyVoicePick(pick.value);
-  ttsVoice = $("tts_voice").value;
-  ttsEngine = $("tts_engine").value;
+  if (ttsEngine === "elevenlabs") {
+    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice;
+  }
   const body = {
     agent_name: $("agent_name").value.trim(),
     company: $("company").value.trim(),
@@ -465,7 +466,10 @@ async function saveScript() {
     tts_rate: "+8%",
     speaker_wav: "voices/my_voice_22k.wav",
     elevenlabs_api_key: ($("elevenlabs_api_key") && $("elevenlabs_api_key").value.trim()) || "",
-    elevenlabs_voice_id: ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || "",
+    elevenlabs_voice_id:
+      ($("elevenlabs_voice_pick") && $("elevenlabs_voice_pick").value.trim()) ||
+      ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
+      "",
     elevenlabs_model: "eleven_multilingual_v2",
   };
   await api("/api/script", { method: "PUT", body: JSON.stringify(body) });
