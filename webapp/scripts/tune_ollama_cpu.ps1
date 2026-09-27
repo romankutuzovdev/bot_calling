@@ -1,6 +1,6 @@
 # Max CPU for fast Ollama replies on Windows Server.
 # Run PowerShell as Administrator once, then restart the bot.
-# ASCII-only for Windows PowerShell 5.1.
+# ASCII-only for Windows PowerShell 5.1 (no fancy dashes / Cyrillic).
 
 $ErrorActionPreference = "Stop"
 $cores = [Environment]::ProcessorCount
@@ -55,7 +55,7 @@ try { ollama pull qwen2.5:3b } catch { Write-Host "pull skipped: $_" }
 Write-Host "Warmup 3b on $cores threads (watch Task Manager CPU)..."
 $body = @{
   model = "qwen2.5:3b"
-  prompt = "Скажи одно слово: ок"
+  prompt = "Say one word: ok"
   stream = $false
   keep_alive = "60m"
   options = @{
@@ -71,7 +71,8 @@ try {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/generate" -Method Post -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 180 | Out-Null
   $sw.Stop()
-  Write-Host ("Warmup OK in {0:N1}s — ollama should spike CPU" -f ($sw.Elapsed.TotalSeconds))
+  $sec = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+  Write-Host "Warmup OK in ${sec}s - ollama should spike CPU"
 } catch {
   Write-Host "Warmup failed: $($_.Exception.Message)"
 }
