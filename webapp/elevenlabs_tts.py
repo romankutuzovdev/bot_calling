@@ -272,3 +272,36 @@ async def check_key(api_key: str) -> dict[str, Any]:
             "proxy": bool(resolve_proxy()),
             "proxy_host": proxy_host_hint(),
         }
+
+
+async def user_subscription(api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Лимиты Free/платного плана (символы)."""
+    headers = {"xi-api-key": api_key, "Accept": "application/json"}
+    try:
+        async with _client(timeout) as client:
+            r = await client.get(f"{API_BASE}/user/subscription", headers=headers)
+    except httpx.RequestError as exc:
+        return {"ok": False, "error": str(exc)}
+    content = r.content or b""
+    if r.status_code >= 400:
+        return {"ok": False, "error": f"HTTP {r.status_code}: {_preview(content)}"}
+    try:
+        data = r.json()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    # character_count / character_limit типичны для ElevenLabs
+    used = int(data.get("character_count") or data.get("credits_used") or 0)
+    limit = int(data.get("character_limit") or data.get("credits_limit") or 0)
+    remaining = max(0, limit - used) if limit else None
+    tier = data.get("tier") or data.get("plan") or ""
+    return {
+        "ok": True,
+        "tier": tier,
+        "character_count": used,
+        "character_limit": limit,
+        "characters_remaining": remaining,
+        "status": data.get("status") or "",
+        # грубая оценка: ~80 символов на короткую реплику бота
+        "approx_replies_left": (remaining // 80) if remaining is not None else None,
+        "approx_minutes_tts": round(remaining / 900, 1) if remaining else None,  # ~15 симв/сек речи
+    }

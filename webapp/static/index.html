@@ -56,10 +56,16 @@
 
         <div id="elevenlabs_box">
           <label>ElevenLabs API key</label>
-          <input id="elevenlabs_api_key" type="password" placeholder="xi-... или оставьте пустым если уже сохранён / в ENV" autocomplete="off" />
-          <label>ElevenLabs Voice ID (клон Андрея)</label>
-          <input id="elevenlabs_voice_id" type="text" placeholder="например abc123..." />
-          <p class="hint">Создайте Instant Voice Clone на elevenlabs.io → Voices → скопируйте Voice ID. Ключ: Profile → API Key.</p>
+          <input id="elevenlabs_api_key" type="password" placeholder="xi-... или оставьте пустым если уже в .env" autocomplete="off" />
+          <label>Голос ElevenLabs</label>
+          <select id="elevenlabs_voice_pick">
+            <option value="">Загрузка голосов…</option>
+          </select>
+          <button id="btnRefreshElVoices" class="ghost" type="button">Обновить список</button>
+          <label>Voice ID (если нет в списке)</label>
+          <input id="elevenlabs_voice_id" type="text" placeholder="например ucPFZZGlUSewYNikXxqt" />
+          <p class="hint" id="elQuotaHint">Лимит Free: загрузка…</p>
+          <p class="hint">На Free через API работают только свои голоса (Voice Design / Clone). Library вроде Victoria — платно.</p>
         </div>
 
         <input type="hidden" id="tts_engine" value="elevenlabs" />

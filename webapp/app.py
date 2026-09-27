@@ -472,6 +472,65 @@ async def list_voices() -> dict[str, Any]:
     }
 
 
+@app.get("/api/elevenlabs/voices")
+async def elevenlabs_voices() -> dict[str, Any]:
+    """Список голосов аккаунта для выбора в UI + лимит Free."""
+    try:
+        from webapp.elevenlabs_tts import (
+            list_voices as el_list,
+            resolve_api_key,
+            user_subscription,
+        )
+    except ImportError:
+        from elevenlabs_tts import (  # type: ignore
+            list_voices as el_list,
+            resolve_api_key,
+            user_subscription,
+        )
+
+    script = load_script()
+    api_key = resolve_api_key(script.get("elevenlabs_api_key"))
+    out: dict[str, Any] = {
+        "ok": False,
+        "voices": [],
+        "current_voice_id": (script.get("elevenlabs_voice_id") or "").strip(),
+        "subscription": None,
+    }
+    if not api_key:
+        out["error"] = "no api key"
+        return out
+    try:
+        raw = await el_list(api_key)
+    except Exception as exc:
+        out["error"] = str(exc)
+        return out
+
+    voices = []
+    for v in raw:
+        cat = (v.get("category") or "").lower()
+        # Free API: обычно работают generated/cloned; library — платно
+        free_ok = cat in ("generated", "cloned")
+        voices.append(
+            {
+                "voice_id": v.get("voice_id") or "",
+                "name": v.get("name") or "",
+                "category": cat,
+                "free_api_ok": free_ok,
+                "label": f"{v.get('name') or '?'} [{cat}]"
+                + ("" if free_ok else " (нужен платный план)"),
+            }
+        )
+    # свои голоса сверху
+    voices.sort(key=lambda x: (0 if x["free_api_ok"] else 1, x["name"].lower()))
+    out["ok"] = True
+    out["voices"] = voices
+    try:
+        out["subscription"] = await user_subscription(api_key)
+    except Exception as exc:
+        out["subscription"] = {"ok": False, "error": str(exc)}
+    return out
+
+
 async def synthesize_edge_mp3(text: str, voice: str, rate: str) -> bytes:
     try:
         import edge_tts
@@ -640,7 +699,7 @@ async def elevenlabs_ping() -> dict[str, Any]:
             return out
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
-        voice_id = (script.get("elevenlabs_voice_id") or "").strip() or "FZGeNF7bE3syeQOynDKC"
+        voice_id = (script.get("elevenlabs_voice_id") or "").strip() or "ucPFZZGlUSewYNikXxqt"
         out.update(
             {
                 "has_key": bool(api_key),

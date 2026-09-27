@@ -306,11 +306,75 @@ function updateTtsHint() {
   if (!hint) return;
   if (ttsEngine === "elevenlabs") {
     hint.textContent =
-      "Модель eleven_multilingual_v2. Если звук не играет сам — нажмите «▶ Слушать» (ограничение браузера).";
+      "ElevenLabs: выберите голос в списке ниже (свои Design/Clone на Free). ▶ Слушать — если браузер блокирует автоплей.";
   } else if (ttsEngine === "clone") {
     hint.textContent = "Локальный XTTS — медленно на CPU.";
   } else {
     hint.textContent = "Microsoft Neural — быстро, не ваш голос.";
+  }
+}
+
+async function loadElevenLabsVoices() {
+  const pick = $("elevenlabs_voice_pick");
+  const quota = $("elQuotaHint");
+  if (!pick) return;
+  try {
+    const data = await api("/api/elevenlabs/voices", { timeoutMs: 45000 });
+    const current =
+      ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
+      data.current_voice_id ||
+      "";
+    pick.innerHTML = "";
+    if (!data.ok || !(data.voices || []).length) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = data.error ? `Ошибка: ${String(data.error).slice(0, 80)}` : "Нет голосов";
+      pick.appendChild(o);
+    } else {
+      for (const v of data.voices) {
+        const o = document.createElement("option");
+        o.value = v.voice_id;
+        o.textContent = v.label || v.name;
+        o.disabled = !v.free_api_ok;
+        if (v.voice_id === current) o.selected = true;
+        pick.appendChild(o);
+      }
+      if (current && pick.value !== current) {
+        // текущий ID не в списке — добавим
+        const o = document.createElement("option");
+        o.value = current;
+        o.textContent = current + " (текущий)";
+        o.selected = true;
+        pick.appendChild(o);
+      }
+    }
+    if (pick.value && $("elevenlabs_voice_id")) {
+      $("elevenlabs_voice_id").value = pick.value;
+      ttsVoice = pick.value;
+    }
+    if (quota) {
+      const s = data.subscription;
+      if (s && s.ok) {
+        const left = s.characters_remaining;
+        const replies = s.approx_replies_left;
+        quota.textContent =
+          `План: ${s.tier || "?"} · использовано ${s.character_count}/${s.character_limit || "?"} символов` +
+          (left != null
+            ? ` · осталось ≈${left} (~${replies} коротких реплик / ~${s.approx_minutes_tts} мин речи)`
+            : "");
+      } else {
+        quota.textContent =
+          "Free обычно 10 000 символов/мес (multilingual_v2 ≈ 1 символ = 1 кредит). Лимит не прочитался: " +
+          ((s && s.error) || "—");
+      }
+    }
+  } catch (e) {
+    pick.innerHTML = "";
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "Не удалось загрузить голоса";
+    pick.appendChild(o);
+    if (quota) quota.textContent = String(e.message || e).slice(0, 160);
   }
 }
 
@@ -650,6 +714,25 @@ $("btnTestVoice").onclick = () => {
 if ($("tts_voice_pick")) {
   $("tts_voice_pick").onchange = () => {
     applyVoicePick($("tts_voice_pick").value);
+    if (ttsEngine === "elevenlabs") loadElevenLabsVoices();
+  };
+}
+if ($("elevenlabs_voice_pick")) {
+  $("elevenlabs_voice_pick").onchange = () => {
+    const id = $("elevenlabs_voice_pick").value;
+    if ($("elevenlabs_voice_id")) $("elevenlabs_voice_id").value = id;
+    ttsEngine = "elevenlabs";
+    ttsVoice = id;
+    if ($("tts_engine")) $("tts_engine").value = "elevenlabs";
+    if ($("tts_voice_pick")) $("tts_voice_pick").value = "elevenlabs";
+  };
+}
+if ($("btnRefreshElVoices")) {
+  $("btnRefreshElVoices").onclick = () => loadElevenLabsVoices().catch((e) => alert(e.message));
+}
+if ($("elevenlabs_voice_id")) {
+  $("elevenlabs_voice_id").onchange = () => {
+    ttsVoice = $("elevenlabs_voice_id").value.trim();
   };
 }
 $("message").addEventListener("keydown", (e) => {
