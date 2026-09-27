@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>МультиГлобал · тест бота</title>
-  <link rel="stylesheet" href="/static/style.css?v=call2" />
+  <link rel="stylesheet" href="/static/style.css?v=voices2" />
 </head>
 <body>
   <div class="app">
@@ -46,38 +46,28 @@
 
         <label>Голос бота</label>
         <select id="tts_voice_pick">
-          <option value="elevenlabs">Corporat — ElevenLabs (по умолчанию)</option>
-          <option value="clone:andrey">Андрей — XTTS локально (медленно)</option>
-          <option value="edge:ru-RU-SvetlanaNeural">Светлана — Microsoft Neural</option>
-          <option value="edge:ru-RU-DariyaNeural">Дария — Microsoft Neural</option>
-          <option value="edge:ru-RU-DmitryNeural">Дмитрий — Microsoft Neural</option>
+          <option value="08aoIyv8fQNQEj9A0YX6">Corporat</option>
+          <option value="ucPFZZGlUSewYNikXxqt">My Boice</option>
         </select>
-        <p class="hint" id="ttsHint">ElevenLabs: Corporat по умолчанию. Можно выбрать другой свой голос в списке ниже.</p>
+        <p class="hint" id="ttsHint">Два ваших голоса ElevenLabs. Corporat — по умолчанию.</p>
 
         <div id="elevenlabs_box">
           <label>ElevenLabs API key</label>
           <input id="elevenlabs_api_key" type="password" placeholder="xi-... или оставьте пустым если уже в .env" autocomplete="off" />
-          <label>Голос ElevenLabs</label>
-          <select id="elevenlabs_voice_pick">
-            <option value="08aoIyv8fQNQEj9A0YX6" selected>Corporat (по умолчанию)</option>
-            <option value="ucPFZZGlUSewYNikXxqt">My Boice</option>
-          </select>
-          <button id="btnRefreshElVoices" class="ghost" type="button">Обновить список</button>
-          <label>Voice ID (если нет в списке)</label>
-          <input id="elevenlabs_voice_id" type="text" value="08aoIyv8fQNQEj9A0YX6" placeholder="08aoIyv8fQNQEj9A0YX6 — Corporat" />
+          <input type="hidden" id="elevenlabs_voice_pick" value="08aoIyv8fQNQEj9A0YX6" />
+          <input type="hidden" id="elevenlabs_voice_id" value="08aoIyv8fQNQEj9A0YX6" />
           <p class="hint" id="elQuotaHint">Лимит Free: загрузка…</p>
-          <p class="hint">На Free через API работают только свои голоса (Voice Design / Clone). Library вроде Victoria — платно.</p>
         </div>
 
         <input type="hidden" id="tts_engine" value="elevenlabs" />
-        <input type="hidden" id="tts_voice" value="ru-RU-SvetlanaNeural" />
+        <input type="hidden" id="tts_voice" value="08aoIyv8fQNQEj9A0YX6" />
 
         <div class="actions">
           <button id="btnSave" class="primary">Сохранить скрипт</button>
           <button id="btnTestVoice" class="ghost" type="button">Прослушать голос</button>
           <span id="saveStatus" class="status"></span>
         </div>
-        <p class="hint" id="cloneStatus">Сэмпл / ElevenLabs: проверка…</p>
+        <p class="hint" id="cloneStatus">ElevenLabs: проверка…</p>
       </section>
 
       <section class="card chat-card">
@@ -113,6 +103,6 @@
       </section>
     </main>
   </div>
-  <script src="/static/app.js?v=call2"></script>
+  <script src="/static/app.js?v=voices2"></script>
 </body>
 </html>

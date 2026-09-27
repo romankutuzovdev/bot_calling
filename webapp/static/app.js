@@ -6,7 +6,7 @@ let recognizing = false;
 let recognition = null;
 let voiceProfile = null;
 let currentAudio = null;
-let ttsVoice = "ru-RU-SvetlanaNeural";
+let ttsVoice = "08aoIyv8fQNQEj9A0YX6";
 let ttsEngine = "elevenlabs";
 let audioUnlocked = false;
 let pendingAudioUrl = null;
@@ -196,9 +196,10 @@ async function speak(text) {
     if (ttsEngine === "elevenlabs" && status) status.textContent = "ElevenLabs…";
 
     const voiceForApi =
-      ttsEngine === "elevenlabs"
-        ? ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice
-        : ttsVoice;
+      ($("tts_voice_pick") && $("tts_voice_pick").value.trim()) ||
+      ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
+      ttsVoice ||
+      CORPORAT_VOICE_ID;
 
     const r = await fetch("/api/tts", {
       method: "POST",
@@ -312,113 +313,57 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
+const CORPORAT_VOICE_ID = "08aoIyv8fQNQEj9A0YX6";
+const MY_BOICE_VOICE_ID = "ucPFZZGlUSewYNikXxqt";
+const KNOWN_EL_VOICES = [
+  { voice_id: CORPORAT_VOICE_ID, name: "Corporat", label: "Corporat" },
+  { voice_id: MY_BOICE_VOICE_ID, name: "My Boice", label: "My Boice" },
+];
+
 function applyVoicePick(value) {
-  const v = value || "elevenlabs";
-  if (v === "elevenlabs" || v.startsWith("elevenlabs")) {
-    ttsEngine = "elevenlabs";
-    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || "";
-  } else if (v.startsWith("clone:")) {
-    ttsEngine = "clone";
-    ttsVoice = "ru-RU-SvetlanaNeural";
-  } else if (v.startsWith("edge:")) {
-    ttsEngine = "edge";
-    ttsVoice = v.slice("edge:".length);
-  }
-  if ($("tts_engine")) $("tts_engine").value = ttsEngine;
+  const id = (value || CORPORAT_VOICE_ID).trim();
+  const known = KNOWN_EL_VOICES.find((v) => v.voice_id === id);
+  ttsEngine = "elevenlabs";
+  ttsVoice = known ? known.voice_id : CORPORAT_VOICE_ID;
+  if ($("tts_engine")) $("tts_engine").value = "elevenlabs";
   if ($("tts_voice")) $("tts_voice").value = ttsVoice;
+  if ($("tts_voice_pick")) $("tts_voice_pick").value = ttsVoice;
+  if ($("elevenlabs_voice_id")) $("elevenlabs_voice_id").value = ttsVoice;
+  if ($("elevenlabs_voice_pick")) $("elevenlabs_voice_pick").value = ttsVoice;
   const box = $("elevenlabs_box");
-  if (box) box.style.display = ttsEngine === "elevenlabs" ? "" : "none";
+  if (box) box.style.display = "";
   updateTtsHint();
 }
 
 function syncVoicePickFromState() {
-  const pick = $("tts_voice_pick");
-  if (!pick) return;
-  if (ttsEngine === "elevenlabs") pick.value = "elevenlabs";
-  else if (ttsEngine === "clone") pick.value = "clone:andrey";
-  else pick.value = `edge:${ttsVoice}`;
-  const box = $("elevenlabs_box");
-  if (box) box.style.display = ttsEngine === "elevenlabs" ? "" : "none";
+  const id =
+    ttsEngine === "elevenlabs" && ttsVoice && KNOWN_EL_VOICES.some((v) => v.voice_id === ttsVoice)
+      ? ttsVoice
+      : CORPORAT_VOICE_ID;
+  applyVoicePick(id);
 }
 
 function updateTtsHint() {
   const hint = $("ttsHint");
   if (!hint) return;
-    if (ttsEngine === "elevenlabs") {
-    hint.textContent =
-      "ElevenLabs: Corporat по умолчанию. В списке ниже можно выбрать My Boice или другой свой голос.";
-  } else if (ttsEngine === "clone") {
-    hint.textContent = "Локальный XTTS — медленно на CPU.";
-  } else {
-    hint.textContent = "Microsoft Neural — быстро, не ваш голос.";
-  }
+  const name = (KNOWN_EL_VOICES.find((v) => v.voice_id === ttsVoice) || {}).name || "Corporat";
+  hint.textContent = `Выбран голос: ${name}. Нажмите «Прослушать голос» или «Сохранить скрипт».`;
 }
 
-const CORPORAT_VOICE_ID = "08aoIyv8fQNQEj9A0YX6";
-const KNOWN_EL_VOICES = [
-  { voice_id: CORPORAT_VOICE_ID, name: "Corporat", label: "Corporat (по умолчанию)" },
-  { voice_id: "ucPFZZGlUSewYNikXxqt", name: "My Boice", label: "My Boice" },
-];
-
 async function loadElevenLabsVoices() {
-  const pick = $("elevenlabs_voice_pick");
+  // Только квота — в UI ровно 2 голоса
   const quota = $("elQuotaHint");
-  if (!pick) return;
-  try {
-    const data = await api("/api/elevenlabs/voices", { timeoutMs: 45000 });
+  const pick = $("tts_voice_pick");
+  if (pick) {
     const current =
       ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
-      data.current_voice_id ||
+      ttsVoice ||
       CORPORAT_VOICE_ID;
-    pick.innerHTML = "";
-
-    const seen = new Set();
-    const addOption = (voiceId, label, disabled = false, selected = false) => {
-      if (!voiceId || seen.has(voiceId)) return;
-      seen.add(voiceId);
-      const o = document.createElement("option");
-      o.value = voiceId;
-      o.textContent = label;
-      o.disabled = disabled;
-      if (selected) o.selected = true;
-      pick.appendChild(o);
-    };
-
-    // Свои известные голоса всегда вверху списка
-    for (const kv of KNOWN_EL_VOICES) {
-      addOption(kv.voice_id, kv.label, false, kv.voice_id === current);
-    }
-
-    if (data.ok && (data.voices || []).length) {
-      for (const v of data.voices) {
-        const known = KNOWN_EL_VOICES.find((k) => k.voice_id === v.voice_id);
-        const label = known
-          ? known.label
-          : v.label || v.name || v.voice_id;
-        if (seen.has(v.voice_id)) {
-          // обновим disabled по API
-          const opt = [...pick.options].find((o) => o.value === v.voice_id);
-          if (opt) opt.disabled = !v.free_api_ok;
-          continue;
-        }
-        addOption(v.voice_id, label, !v.free_api_ok, v.voice_id === current);
-      }
-    } else if (!data.ok) {
-      if (!seen.size) {
-        addOption("", data.error ? `Ошибка: ${String(data.error).slice(0, 80)}` : "Нет голосов");
-      }
-    }
-
-    if (current && !seen.has(current)) {
-      addOption(current, current + " (текущий)", false, true);
-    }
-    if (!pick.value) {
-      pick.value = CORPORAT_VOICE_ID;
-    }
-    if (pick.value && $("elevenlabs_voice_id")) {
-      $("elevenlabs_voice_id").value = pick.value;
-      ttsVoice = pick.value;
-    }
+    pick.value = KNOWN_EL_VOICES.some((v) => v.voice_id === current) ? current : CORPORAT_VOICE_ID;
+    applyVoicePick(pick.value);
+  }
+  try {
+    const data = await api("/api/elevenlabs/voices", { timeoutMs: 45000 });
     if (quota) {
       const s = data.subscription;
       if (s && s.ok) {
@@ -431,21 +376,11 @@ async function loadElevenLabsVoices() {
             : "");
       } else {
         quota.textContent =
-          "Free обычно 10 000 символов/мес (multilingual_v2 ≈ 1 символ = 1 кредит). Лимит не прочитался: " +
-          ((s && s.error) || "—");
+          "Free обычно 10 000 символов/мес. Лимит: " + ((s && s.error) || data.error || "—");
       }
     }
   } catch (e) {
-    pick.innerHTML = "";
-    for (const kv of KNOWN_EL_VOICES) {
-      const o = document.createElement("option");
-      o.value = kv.voice_id;
-      o.textContent = kv.label;
-      if (kv.voice_id === CORPORAT_VOICE_ID) o.selected = true;
-      pick.appendChild(o);
-    }
-    if ($("elevenlabs_voice_id")) $("elevenlabs_voice_id").value = CORPORAT_VOICE_ID;
-    if (quota) quota.textContent = "Не удалось загрузить голоса: " + String(e.message || e).slice(0, 80);
+    if (quota) quota.textContent = "Не удалось загрузить лимит: " + String(e.message || e).slice(0, 80);
   }
 }
 
@@ -500,31 +435,23 @@ async function loadScript() {
   $("system_prompt").value = s.system_prompt || "";
   $("ollama_model").value = s.ollama_model || "qwen2.5:3b";
   $("ollama_url").value = s.ollama_url || "http://127.0.0.1:11434";
-  ttsVoice = s.tts_voice || "ru-RU-SvetlanaNeural";
-  ttsEngine = s.tts_engine || "elevenlabs";
-  if ($("tts_voice")) $("tts_voice").value = ttsVoice;
-  if ($("tts_engine")) $("tts_engine").value = ttsEngine;
-  if ($("elevenlabs_voice_id")) {
-    $("elevenlabs_voice_id").value = s.elevenlabs_voice_id || CORPORAT_VOICE_ID;
-  }
+  ttsEngine = "elevenlabs";
+  const savedId = (s.elevenlabs_voice_id || s.tts_voice || CORPORAT_VOICE_ID).trim();
+  ttsVoice = KNOWN_EL_VOICES.some((v) => v.voice_id === savedId) ? savedId : CORPORAT_VOICE_ID;
   if ($("elevenlabs_api_key")) {
     $("elevenlabs_api_key").placeholder = s.elevenlabs_api_key_set
       ? "ключ уже сохранён — введите новый чтобы заменить"
       : "xi-... API key";
     $("elevenlabs_api_key").value = "";
   }
-  syncVoicePickFromState();
-  updateTtsHint();
+  applyVoicePick(ttsVoice);
   agentName = s.agent_name || "Бот";
   syncPhoneHeader();
   await loadElevenLabsVoices();
 }
 
 async function saveScript() {
-  const pick = $("tts_voice_pick");
-  if (ttsEngine === "elevenlabs") {
-    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice;
-  }
+  applyVoicePick(($("tts_voice_pick") && $("tts_voice_pick").value) || CORPORAT_VOICE_ID);
   const body = {
     agent_name: $("agent_name").value.trim(),
     company: $("company").value.trim(),
@@ -533,15 +460,12 @@ async function saveScript() {
     ollama_model: $("ollama_model").value.trim(),
     ollama_url: $("ollama_url").value.trim(),
     temperature: 0.45,
-    tts_engine: ttsEngine,
+    tts_engine: "elevenlabs",
     tts_voice: ttsVoice,
     tts_rate: "+8%",
     speaker_wav: "voices/my_voice_22k.wav",
     elevenlabs_api_key: ($("elevenlabs_api_key") && $("elevenlabs_api_key").value.trim()) || "",
-    elevenlabs_voice_id:
-      ($("elevenlabs_voice_pick") && $("elevenlabs_voice_pick").value.trim()) ||
-      ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
-      CORPORAT_VOICE_ID,
+    elevenlabs_voice_id: ttsVoice || CORPORAT_VOICE_ID,
     elevenlabs_model: "eleven_multilingual_v2",
   };
   await api("/api/script", { method: "PUT", body: JSON.stringify(body) });
@@ -830,41 +754,13 @@ if ($("btnPlayAudio")) {
 }
 $("btnTestVoice").onclick = () => {
   unlockAudio();
-  const pick = $("tts_voice_pick");
-  if (pick) applyVoicePick(pick.value);
-  if (ttsEngine === "elevenlabs") {
-    ttsVoice = ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) || ttsVoice;
-  }
-  speak(
-    ttsEngine === "elevenlabs"
-      ? "Здравствуйте! Это тест голоса через ElevenLabs."
-      : ttsEngine === "clone"
-        ? "Здравствуйте! Это тест клона голоса XTTS."
-        : "Здравствуйте! Это тест голоса Microsoft Neural."
-  );
+  applyVoicePick(($("tts_voice_pick") && $("tts_voice_pick").value) || CORPORAT_VOICE_ID);
+  const name = (KNOWN_EL_VOICES.find((v) => v.voice_id === ttsVoice) || {}).name || "Corporat";
+  speak(`Здравствуйте! Это тест голоса ${name}.`);
 };
 if ($("tts_voice_pick")) {
   $("tts_voice_pick").onchange = () => {
     applyVoicePick($("tts_voice_pick").value);
-    if (ttsEngine === "elevenlabs") loadElevenLabsVoices();
-  };
-}
-if ($("elevenlabs_voice_pick")) {
-  $("elevenlabs_voice_pick").onchange = () => {
-    const id = $("elevenlabs_voice_pick").value;
-    if ($("elevenlabs_voice_id")) $("elevenlabs_voice_id").value = id;
-    ttsEngine = "elevenlabs";
-    ttsVoice = id;
-    if ($("tts_engine")) $("tts_engine").value = "elevenlabs";
-    if ($("tts_voice_pick")) $("tts_voice_pick").value = "elevenlabs";
-  };
-}
-if ($("btnRefreshElVoices")) {
-  $("btnRefreshElVoices").onclick = () => loadElevenLabsVoices().catch((e) => alert(e.message));
-}
-if ($("elevenlabs_voice_id")) {
-  $("elevenlabs_voice_id").onchange = () => {
-    ttsVoice = $("elevenlabs_voice_id").value.trim();
   };
 }
 $("message").addEventListener("keydown", (e) => {
@@ -880,6 +776,7 @@ document.addEventListener("click", () => unlockAudio(), { once: true });
   updateCallButton();
   syncPhoneHeader();
   setCallStatus(null);
+  applyVoicePick(CORPORAT_VOICE_ID);
   try {
     await loadScript();
   } catch (e) {
