@@ -46,24 +46,25 @@
 
         <label>Голос бота</label>
         <select id="tts_voice_pick">
-          <option value="elevenlabs">Андрей — ElevenLabs (рекомендуется)</option>
+          <option value="elevenlabs">Corporat — ElevenLabs (по умолчанию)</option>
           <option value="clone:andrey">Андрей — XTTS локально (медленно)</option>
           <option value="edge:ru-RU-SvetlanaNeural">Светлана — Microsoft Neural</option>
           <option value="edge:ru-RU-DariyaNeural">Дария — Microsoft Neural</option>
           <option value="edge:ru-RU-DmitryNeural">Дмитрий — Microsoft Neural</option>
         </select>
-        <p class="hint" id="ttsHint">ElevenLabs: быстрый живой клон. Нужны API key и Voice ID.</p>
+        <p class="hint" id="ttsHint">ElevenLabs: Corporat по умолчанию. Можно выбрать другой свой голос в списке ниже.</p>
 
         <div id="elevenlabs_box">
           <label>ElevenLabs API key</label>
           <input id="elevenlabs_api_key" type="password" placeholder="xi-... или оставьте пустым если уже в .env" autocomplete="off" />
           <label>Голос ElevenLabs</label>
           <select id="elevenlabs_voice_pick">
-            <option value="">Загрузка голосов…</option>
+            <option value="08aoIyv8fQNQEj9A0YX6" selected>Corporat (по умолчанию)</option>
+            <option value="ucPFZZGlUSewYNikXxqt">My Boice</option>
           </select>
           <button id="btnRefreshElVoices" class="ghost" type="button">Обновить список</button>
           <label>Voice ID (если нет в списке)</label>
-          <input id="elevenlabs_voice_id" type="text" placeholder="например ucPFZZGlUSewYNikXxqt" />
+          <input id="elevenlabs_voice_id" type="text" value="08aoIyv8fQNQEj9A0YX6" placeholder="08aoIyv8fQNQEj9A0YX6 — Corporat" />
           <p class="hint" id="elQuotaHint">Лимит Free: загрузка…</p>
           <p class="hint">На Free через API работают только свои голоса (Voice Design / Clone). Library вроде Victoria — платно.</p>
         </div>
@@ -84,20 +85,31 @@
           <h2>Тестовый звонок</h2>
           <div class="chat-head-actions">
             <button id="btnPlayAudio" class="ghost hidden" type="button">▶ Слушать</button>
+            <button id="btnToggleLog" class="ghost hidden" type="button">Расшифровка</button>
             <button id="btnReset" class="primary" type="button">Начать звонок</button>
           </div>
         </div>
 
-        <div id="callStatus" class="call-status hidden">Ожидание…</div>
-        <div id="profile" class="profile hidden">Голос: —</div>
-        <div id="chat" class="chat"></div>
+        <div id="phoneStage" class="phone-stage">
+          <div class="phone-avatar" id="phoneAvatar">А</div>
+          <div class="phone-name" id="phoneName">Александра</div>
+          <div class="phone-company" id="phoneCompany">МультиГлобал Групп</div>
+          <div id="callStatus" class="call-status idle">Нажмите «Начать звонок»</div>
+          <div id="liveCaption" class="live-caption hidden"></div>
+          <div class="phone-wave" id="phoneWave" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
 
-        <div class="composer">
-          <button id="btnMic" class="mic" title="Дописать голосом вручную" type="button">🎤</button>
-          <input id="message" type="text" placeholder="Или напишите ответ вручную…" />
+        <div id="profile" class="profile hidden">Голос: —</div>
+        <div id="chat" class="chat chat-log hidden"></div>
+
+        <div id="composerBox" class="composer composer-manual">
+          <button id="btnMic" class="mic" title="Только для ручного режима" type="button">🎤</button>
+          <input id="message" type="text" placeholder="Ручной текст (не нужен во время звонка)…" />
           <button id="btnSend" class="primary" type="button">Отправить</button>
         </div>
-        <p class="hint mic-hint">«Начать звонок» — бот говорит, затем слушает микрофон и отвечает голосом сам (Chrome/Edge).</p>
+        <p class="hint mic-hint" id="callHint">Реальный диалог: бот говорит → вы отвечаете голосом → бот снова говорит. Chrome/Edge, разрешите микрофон.</p>
       </section>
     </main>
   </div>

@@ -126,15 +126,18 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
 .mic-hint { margin-top: 8px; }
 
 .call-status {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: 999px;
   background: #1a2430;
   border: 1px solid #2f9e7a66;
   color: #7ddeb8;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 600;
+  text-align: center;
+  min-width: 220px;
 }
+.call-status.idle { border-color: #3a4658; color: var(--muted); }
 .call-status.listening {
   border-color: #d45d5d88;
   color: #f0a0a0;
@@ -144,6 +147,91 @@ button#btnPlayAudio { border-color: #2f6fed; color: #2f6fed; font-weight: 600; }
   border-color: #3d7eff88;
   color: #b8d0ff;
 }
+.call-status.thinking {
+  border-color: #e6b84d88;
+  color: #f0d48a;
+}
+
+.phone-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 320px;
+  padding: 28px 16px;
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse at 50% 20%, #1e3a2f55, transparent 55%),
+    linear-gradient(180deg, #121820, #0d1218);
+  border: 1px solid #243041;
+  margin-bottom: 12px;
+}
+.phone-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #dff7ec;
+  background: linear-gradient(145deg, #2f9e7a, #1a5c48);
+  box-shadow: 0 0 0 6px #2f9e7a22;
+}
+.phone-name { font-size: 1.35rem; font-weight: 700; margin-top: 6px; }
+.phone-company { color: var(--muted); font-size: 0.9rem; }
+.live-caption {
+  margin-top: 10px;
+  max-width: 90%;
+  text-align: center;
+  color: #c5d0dc;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  min-height: 2.4em;
+}
+.phone-wave {
+  display: flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 28px;
+  margin-top: 10px;
+  opacity: 0.25;
+}
+.phone-wave span {
+  width: 5px;
+  height: 8px;
+  border-radius: 3px;
+  background: #7ddeb8;
+}
+.phone-stage.is-speaking .phone-wave,
+.phone-stage.is-listening .phone-wave { opacity: 1; }
+.phone-stage.is-speaking .phone-wave span,
+.phone-stage.is-listening .phone-wave span {
+  animation: wave 0.9s ease-in-out infinite;
+}
+.phone-stage.is-speaking .phone-wave span:nth-child(2),
+.phone-stage.is-listening .phone-wave span:nth-child(2) { animation-delay: 0.1s; }
+.phone-stage.is-speaking .phone-wave span:nth-child(3),
+.phone-stage.is-listening .phone-wave span:nth-child(3) { animation-delay: 0.2s; }
+.phone-stage.is-speaking .phone-wave span:nth-child(4),
+.phone-stage.is-listening .phone-wave span:nth-child(4) { animation-delay: 0.3s; }
+.phone-stage.is-speaking .phone-wave span:nth-child(5),
+.phone-stage.is-listening .phone-wave span:nth-child(5) { animation-delay: 0.4s; }
+@keyframes wave {
+  0%, 100% { height: 8px; }
+  50% { height: 26px; }
+}
+
+.chat-log {
+  max-height: 220px;
+  margin-top: 8px;
+  opacity: 0.85;
+}
+.composer-manual { opacity: 0.55; }
+.chat-card.in-call .composer-manual,
+.chat-card.in-call .mic-hint { display: none; }
+.chat-card.in-call #profile { display: none; }
 
 .profile {
   margin: 0 0 8px;

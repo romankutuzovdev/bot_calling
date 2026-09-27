@@ -14,6 +14,7 @@ let callActive = false;
 let botSpeaking = false;
 let listenTimer = null;
 let sendingVoice = false;
+let showLog = false;
 
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -29,29 +30,60 @@ function unlockAudio() {
 
 function setCallStatus(mode, text) {
   const el = $("callStatus");
+  const stage = $("phoneStage");
+  const card = document.querySelector(".chat-card");
   if (!el) return;
   if (!mode) {
+    el.className = "call-status idle";
+    el.textContent = text || "Нажмите «Начать звонок»";
+    if (stage) stage.className = "phone-stage";
+    if (card) card.classList.remove("in-call");
+    return;
+  }
+  el.className = "call-status " + mode;
+  el.textContent = text || "";
+  if (stage) {
+    stage.className = "phone-stage";
+    if (mode === "speaking" || mode === "thinking") stage.classList.add("is-speaking");
+    if (mode === "listening") stage.classList.add("is-listening");
+  }
+  if (card && callActive) card.classList.add("in-call");
+}
+
+function setLiveCaption(text, show) {
+  const el = $("liveCaption");
+  if (!el) return;
+  if (!show || !text) {
     el.classList.add("hidden");
-    el.className = "call-status hidden";
     el.textContent = "";
     return;
   }
   el.classList.remove("hidden");
-  el.className = "call-status " + mode;
-  el.textContent = text || "";
+  el.textContent = text;
+}
+
+function syncPhoneHeader() {
+  const name = ($("agent_name") && $("agent_name").value.trim()) || agentName || "Александра";
+  const company = ($("company") && $("company").value.trim()) || "МультиГлобал Групп";
+  if ($("phoneName")) $("phoneName").textContent = name;
+  if ($("phoneCompany")) $("phoneCompany").textContent = company;
+  if ($("phoneAvatar")) $("phoneAvatar").textContent = (name[0] || "А").toUpperCase();
 }
 
 function updateCallButton() {
   const b = $("btnReset");
+  const logBtn = $("btnToggleLog");
   if (!b) return;
   if (callActive) {
-    b.textContent = "Завершить звонок";
+    b.textContent = "Сбросить трубку";
     b.classList.remove("primary");
     b.classList.add("ghost");
+    if (logBtn) logBtn.classList.remove("hidden");
   } else {
     b.textContent = "Начать звонок";
     b.classList.add("primary");
     b.classList.remove("ghost");
+    if (logBtn) logBtn.classList.add("hidden");
   }
 }
 
@@ -304,15 +336,21 @@ function syncVoicePickFromState() {
 function updateTtsHint() {
   const hint = $("ttsHint");
   if (!hint) return;
-  if (ttsEngine === "elevenlabs") {
+    if (ttsEngine === "elevenlabs") {
     hint.textContent =
-      "ElevenLabs: выберите голос в списке ниже (свои Design/Clone на Free). ▶ Слушать — если браузер блокирует автоплей.";
+      "ElevenLabs: Corporat по умолчанию. В списке ниже можно выбрать My Boice или другой свой голос.";
   } else if (ttsEngine === "clone") {
     hint.textContent = "Локальный XTTS — медленно на CPU.";
   } else {
     hint.textContent = "Microsoft Neural — быстро, не ваш голос.";
   }
 }
+
+const CORPORAT_VOICE_ID = "08aoIyv8fQNQEj9A0YX6";
+const KNOWN_EL_VOICES = [
+  { voice_id: CORPORAT_VOICE_ID, name: "Corporat", label: "Corporat (по умолчанию)" },
+  { voice_id: "ucPFZZGlUSewYNikXxqt", name: "My Boice", label: "My Boice" },
+];
 
 async function loadElevenLabsVoices() {
   const pick = $("elevenlabs_voice_pick");
@@ -323,30 +361,51 @@ async function loadElevenLabsVoices() {
     const current =
       ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
       data.current_voice_id ||
-      "";
+      CORPORAT_VOICE_ID;
     pick.innerHTML = "";
-    if (!data.ok || !(data.voices || []).length) {
+
+    const seen = new Set();
+    const addOption = (voiceId, label, disabled = false, selected = false) => {
+      if (!voiceId || seen.has(voiceId)) return;
+      seen.add(voiceId);
       const o = document.createElement("option");
-      o.value = "";
-      o.textContent = data.error ? `Ошибка: ${String(data.error).slice(0, 80)}` : "Нет голосов";
+      o.value = voiceId;
+      o.textContent = label;
+      o.disabled = disabled;
+      if (selected) o.selected = true;
       pick.appendChild(o);
-    } else {
+    };
+
+    // Свои известные голоса всегда вверху списка
+    for (const kv of KNOWN_EL_VOICES) {
+      addOption(kv.voice_id, kv.label, false, kv.voice_id === current);
+    }
+
+    if (data.ok && (data.voices || []).length) {
       for (const v of data.voices) {
-        const o = document.createElement("option");
-        o.value = v.voice_id;
-        o.textContent = v.label || v.name;
-        o.disabled = !v.free_api_ok;
-        if (v.voice_id === current) o.selected = true;
-        pick.appendChild(o);
+        const known = KNOWN_EL_VOICES.find((k) => k.voice_id === v.voice_id);
+        const label = known
+          ? known.label
+          : v.label || v.name || v.voice_id;
+        if (seen.has(v.voice_id)) {
+          // обновим disabled по API
+          const opt = [...pick.options].find((o) => o.value === v.voice_id);
+          if (opt) opt.disabled = !v.free_api_ok;
+          continue;
+        }
+        addOption(v.voice_id, label, !v.free_api_ok, v.voice_id === current);
       }
-      if (current && pick.value !== current) {
-        // текущий ID не в списке — добавим
-        const o = document.createElement("option");
-        o.value = current;
-        o.textContent = current + " (текущий)";
-        o.selected = true;
-        pick.appendChild(o);
+    } else if (!data.ok) {
+      if (!seen.size) {
+        addOption("", data.error ? `Ошибка: ${String(data.error).slice(0, 80)}` : "Нет голосов");
       }
+    }
+
+    if (current && !seen.has(current)) {
+      addOption(current, current + " (текущий)", false, true);
+    }
+    if (!pick.value) {
+      pick.value = CORPORAT_VOICE_ID;
     }
     if (pick.value && $("elevenlabs_voice_id")) {
       $("elevenlabs_voice_id").value = pick.value;
@@ -370,11 +429,15 @@ async function loadElevenLabsVoices() {
     }
   } catch (e) {
     pick.innerHTML = "";
-    const o = document.createElement("option");
-    o.value = "";
-    o.textContent = "Не удалось загрузить голоса";
-    pick.appendChild(o);
-    if (quota) quota.textContent = String(e.message || e).slice(0, 160);
+    for (const kv of KNOWN_EL_VOICES) {
+      const o = document.createElement("option");
+      o.value = kv.voice_id;
+      o.textContent = kv.label;
+      if (kv.voice_id === CORPORAT_VOICE_ID) o.selected = true;
+      pick.appendChild(o);
+    }
+    if ($("elevenlabs_voice_id")) $("elevenlabs_voice_id").value = CORPORAT_VOICE_ID;
+    if (quota) quota.textContent = "Не удалось загрузить голоса: " + String(e.message || e).slice(0, 80);
   }
 }
 
@@ -434,7 +497,7 @@ async function loadScript() {
   if ($("tts_voice")) $("tts_voice").value = ttsVoice;
   if ($("tts_engine")) $("tts_engine").value = ttsEngine;
   if ($("elevenlabs_voice_id")) {
-    $("elevenlabs_voice_id").value = s.elevenlabs_voice_id || "";
+    $("elevenlabs_voice_id").value = s.elevenlabs_voice_id || CORPORAT_VOICE_ID;
   }
   if ($("elevenlabs_api_key")) {
     $("elevenlabs_api_key").placeholder = s.elevenlabs_api_key_set
@@ -445,6 +508,7 @@ async function loadScript() {
   syncVoicePickFromState();
   updateTtsHint();
   agentName = s.agent_name || "Бот";
+  syncPhoneHeader();
   await loadElevenLabsVoices();
 }
 
@@ -469,7 +533,7 @@ async function saveScript() {
     elevenlabs_voice_id:
       ($("elevenlabs_voice_pick") && $("elevenlabs_voice_pick").value.trim()) ||
       ($("elevenlabs_voice_id") && $("elevenlabs_voice_id").value.trim()) ||
-      "",
+      CORPORAT_VOICE_ID,
     elevenlabs_model: "eleven_multilingual_v2",
   };
   await api("/api/script", { method: "PUT", body: JSON.stringify(body) });
@@ -484,39 +548,58 @@ async function endCall(reason) {
   stopListening();
   botSpeaking = false;
   updateCallButton();
-  setCallStatus(null);
-  if (reason) addBubble("bot", reason);
+  setLiveCaption("", false);
+  const card = document.querySelector(".chat-card");
+  if (card) card.classList.remove("in-call");
+  if (reason) {
+    setCallStatus(null, reason);
+    addBubble("bot", reason);
+  } else {
+    setCallStatus(null);
+  }
 }
 
 async function startCall() {
   unlockAudio();
   callActive = true;
+  showLog = false;
+  if ($("chat")) $("chat").classList.add("hidden");
   updateCallButton();
+  syncPhoneHeader();
   setCallStatus("speaking", "Соединение…");
+  setLiveCaption("", false);
   $("chat").innerHTML = "";
   voiceProfile = null;
   $("profile").classList.add("hidden");
   const data = await api("/api/session/reset", { method: "POST" });
   sessionId = data.session_id;
   agentName = data.agent_name || agentName;
+  syncPhoneHeader();
   addBubble("bot", data.opening);
+  setLiveCaption("", false);
   await speak(data.opening);
-  // speak() already schedules listen when callActive
 }
 
 async function resetCall() {
-  // тихий сброс без автослушания (для загрузки страницы)
   callActive = false;
   stopListening();
   updateCallButton();
   setCallStatus(null);
+  setLiveCaption("", false);
+  const card = document.querySelector(".chat-card");
+  if (card) card.classList.remove("in-call");
   $("chat").innerHTML = "";
+  if ($("chat")) $("chat").classList.add("hidden");
   voiceProfile = null;
   $("profile").classList.add("hidden");
-  const data = await api("/api/session/reset", { method: "POST" });
-  sessionId = data.session_id;
-  agentName = data.agent_name || agentName;
-  addBubble("bot", data.opening);
+  try {
+    const data = await api("/api/session/reset", { method: "POST" });
+    sessionId = data.session_id;
+    agentName = data.agent_name || agentName;
+    syncPhoneHeader();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function sendMessage(text) {
@@ -527,6 +610,10 @@ async function sendMessage(text) {
   $("btnSend").disabled = true;
   sendingVoice = true;
   stopListening();
+  if (callActive) {
+    setCallStatus("thinking", "Думает…");
+    setLiveCaption("", false);
+  }
   try {
     const data = await api("/api/chat", {
       method: "POST",
@@ -542,13 +629,16 @@ async function sendMessage(text) {
     addBubble("bot", data.reply, data.flag);
     await speak(data.reply);
     if (data.flag === "CLOSE_DEAL") {
-      await endCall("✓ Заявка зафиксирована. Звонок завершён.");
+      await endCall("Заявка зафиксирована. До свидания!");
     } else if (data.flag === "END_CALL") {
-      await endCall("Звонок завершён.");
+      await endCall("Звонок завершён. До свидания!");
     }
   } catch (e) {
     addBubble("bot", `Ошибка: ${e.message}`);
-    if (callActive) scheduleListen();
+    if (callActive) {
+      setCallStatus("listening", "Ошибка связи — говорите ещё раз");
+      scheduleListen();
+    }
   } finally {
     sendingVoice = false;
     $("btnSend").disabled = false;
@@ -650,8 +740,13 @@ function initSpeech() {
       if (ev.results[i].isFinal) finalText += t;
       else interim += t;
     }
-    const shown = (finalText || interim).trim();
-    if (shown) $("message").value = shown;
+    // Во время звонка не пишем голос в текстовое поле — только статус «слушаю»
+    if (!callActive) {
+      const shown = (finalText || interim).trim();
+      if (shown) $("message").value = shown;
+    } else if (interim.trim() && !finalText.trim()) {
+      setCallStatus("listening", "Слушаю…");
+    }
     if (finalText.trim()) {
       stopListening();
       sendMessage(finalText.trim());
@@ -678,6 +773,16 @@ async function toggleMic() {
 }
 
 $("btnSave").onclick = () => saveScript().catch((e) => alert(e.message));
+if ($("btnToggleLog")) {
+  $("btnToggleLog").onclick = () => {
+    showLog = !showLog;
+    const chat = $("chat");
+    if (!chat) return;
+    if (showLog) chat.classList.remove("hidden");
+    else chat.classList.add("hidden");
+    $("btnToggleLog").textContent = showLog ? "Скрыть текст" : "Расшифровка";
+  };
+}
 $("btnReset").onclick = () => {
   unlockAudio();
   if (callActive) {
@@ -750,6 +855,8 @@ document.addEventListener("click", () => unlockAudio(), { once: true });
 (async function boot() {
   initSpeech();
   updateCallButton();
+  syncPhoneHeader();
+  setCallStatus(null);
   try {
     await loadScript();
   } catch (e) {

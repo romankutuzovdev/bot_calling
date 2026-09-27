@@ -581,7 +581,7 @@ async def tts(body: TtsIn) -> Response:
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
         raw_voice = (body.voice or "").strip()
-        preferred = raw_voice or (script.get("elevenlabs_voice_id") or "").strip()
+        preferred = raw_voice or (script.get("elevenlabs_voice_id") or "").strip() or "08aoIyv8fQNQEj9A0YX6"
         if not api_key:
             raise HTTPException(
                 400,
@@ -699,7 +699,7 @@ async def elevenlabs_ping() -> dict[str, Any]:
             return out
 
         api_key = resolve_api_key(script.get("elevenlabs_api_key"))
-        voice_id = (script.get("elevenlabs_voice_id") or "").strip() or "ucPFZZGlUSewYNikXxqt"
+        voice_id = (script.get("elevenlabs_voice_id") or "").strip() or "08aoIyv8fQNQEj9A0YX6"
         out.update(
             {
                 "has_key": bool(api_key),
