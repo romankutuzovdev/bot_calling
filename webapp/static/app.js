@@ -15,6 +15,8 @@ let botSpeaking = false;
 let listenTimer = null;
 let sendingVoice = false;
 let showLog = false;
+let listenWatchdog = null;
+let listenGeneration = 0;
 
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -138,30 +140,137 @@ function stopListening() {
     clearTimeout(listenTimer);
     listenTimer = null;
   }
-  if (recognition && recognizing) {
+  if (recognition) {
     try {
-      recognition.stop();
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.onstart = null;
+      if (recognizing) recognition.stop();
+      else recognition.abort();
     } catch {}
+  }
+  recognizing = false;
+  if ($("btnMic")) $("btnMic").classList.remove("active");
+}
+
+function wantListen() {
+  return callActive && !botSpeaking && !sendingVoice;
+}
+
+function scheduleListen(delayMs) {
+  if (!wantListen()) return;
+  if (listenTimer) clearTimeout(listenTimer);
+  const wait = delayMs == null ? 400 : delayMs;
+  const gen = ++listenGeneration;
+  listenTimer = setTimeout(() => {
+    listenTimer = null;
+    if (gen !== listenGeneration) return;
+    if (wantListen()) startListening();
+  }, wait);
+}
+
+function startListenWatchdog() {
+  if (listenWatchdog) clearInterval(listenWatchdog);
+  listenWatchdog = setInterval(() => {
+    if (!wantListen()) return;
+    if (!recognizing) {
+      setCallStatus("listening", "Слушаю вас… говорите");
+      startListening();
+    }
+  }, 1500);
+}
+
+function stopListenWatchdog() {
+  if (listenWatchdog) {
+    clearInterval(listenWatchdog);
+    listenWatchdog = null;
   }
 }
 
-function scheduleListen() {
-  if (!callActive || botSpeaking || sendingVoice) return;
-  if (listenTimer) clearTimeout(listenTimer);
-  listenTimer = setTimeout(() => {
-    listenTimer = null;
-    if (callActive && !botSpeaking && !sendingVoice) startListening();
-  }, 350);
+function bindRecognitionHandlers() {
+  if (!recognition) return;
+  recognition.onstart = () => {
+    recognizing = true;
+    if ($("btnMic")) $("btnMic").classList.add("active");
+    if (callActive) setCallStatus("listening", "Слушаю вас… говорите");
+  };
+  recognition.onend = () => {
+    recognizing = false;
+    if ($("btnMic")) $("btnMic").classList.remove("active");
+    // нон-стоп: снова слушаем
+    if (wantListen()) scheduleListen(250);
+  };
+  recognition.onerror = (ev) => {
+    recognizing = false;
+    if ($("btnMic")) $("btnMic").classList.remove("active");
+    const err = ev && ev.error;
+    if (callActive && err && err !== "aborted" && err !== "no-speech") {
+      setCallStatus("listening", "Не расслышала, говорите ещё раз…");
+    }
+    if (wantListen()) scheduleListen(400);
+  };
+  recognition.onresult = (ev) => {
+    let finalText = "";
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) finalText += t;
+      else interim += t;
+    }
+    const shown = (finalText || interim).trim();
+    if (shown) {
+      if ($("message")) $("message").value = shown;
+      if (callActive) setLiveCaption("Вы: " + shown, true);
+    }
+    if (finalText.trim()) {
+      stopListening();
+      sendMessage(finalText.trim());
+    }
+  };
+}
+
+function createRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const rec = new SR();
+  rec.lang = "ru-RU";
+  rec.interimResults = true;
+  rec.continuous = true;
+  rec.maxAlternatives = 1;
+  return rec;
 }
 
 async function startListening() {
-  if (!recognition || !callActive || botSpeaking || recognizing || sendingVoice) return;
+  if (!wantListen()) return;
+  if (!recognition) {
+    recognition = createRecognition();
+    if (!recognition) {
+      setCallStatus("listening", "Нужен Chrome/Edge для голоса");
+      return;
+    }
+  }
+  bindRecognitionHandlers();
+  if (recognizing) return;
   setCallStatus("listening", "Слушаю вас… говорите");
   try {
     recognition.start();
   } catch (e) {
-    // already started — retry shortly
-    scheduleListen();
+    // InvalidStateError — уже запущено или слишком рано после stop
+    recognizing = false;
+    try {
+      recognition.abort();
+    } catch {}
+    recognition = createRecognition();
+    bindRecognitionHandlers();
+    setTimeout(() => {
+      if (!wantListen() || recognizing) return;
+      try {
+        recognition.start();
+      } catch (e2) {
+        scheduleListen(600);
+      }
+    }, 300);
   }
 }
 
@@ -169,7 +278,8 @@ async function ensureMicOnce() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     sampleVoiceProfile(stream).catch(() => {});
-    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 900);
+    // не рвём трек сразу — пусть SpeechRecognition успеет подхватить
+    setTimeout(() => stream.getTracks().forEach((t) => t.stop()), 2500);
     return true;
   } catch (e) {
     setCallStatus("listening", "Нет доступа к микрофону — разрешите в браузере");
@@ -263,7 +373,8 @@ async function speak(text) {
     });
   } finally {
     botSpeaking = false;
-    if (callActive) scheduleListen();
+    // после речи всегда снова слушаем (даже если sendingVoice ещё true — sendMessage тоже догонит)
+    if (callActive) scheduleListen(500);
     else setCallStatus(null);
   }
 }
@@ -477,6 +588,7 @@ async function saveScript() {
 
 async function endCall(reason) {
   callActive = false;
+  stopListenWatchdog();
   stopListening();
   botSpeaking = false;
   sendingVoice = false;
@@ -506,12 +618,27 @@ async function startCall() {
   voiceProfile = null;
   $("profile").classList.add("hidden");
 
+  // сразу «прогреваем» SpeechRecognition на жесте клика
+  recognition = createRecognition();
+  bindRecognitionHandlers();
+  try {
+    recognition.start();
+    setTimeout(() => {
+      try {
+        recognition.stop();
+      } catch {}
+    }, 200);
+  } catch {}
+
   const micOk = await ensureMicOnce();
   if (!micOk) {
     callActive = false;
     updateCallButton();
+    stopListenWatchdog();
     return;
   }
+
+  startListenWatchdog();
 
   try {
     const data = await api("/api/session/reset", { method: "POST" });
@@ -521,16 +648,20 @@ async function startCall() {
     addBubble("bot", data.opening);
     setLiveCaption(data.opening, true);
     await speak(data.opening);
+    // speak уже планирует listen; дублируем на случай гонки
+    if (callActive) scheduleListen(600);
   } catch (e) {
     addBubble("bot", "Ошибка старта: " + (e.message || e));
     setCallStatus("listening", "Не удалось начать — попробуйте ещё раз");
     callActive = false;
+    stopListenWatchdog();
     updateCallButton();
   }
 }
 
 async function resetCall() {
   callActive = false;
+  stopListenWatchdog();
   stopListening();
   updateCallButton();
   setCallStatus(null);
@@ -587,12 +718,13 @@ async function sendMessage(text) {
     addBubble("bot", `Ошибка: ${e.message}`);
     if (callActive) {
       setCallStatus("listening", "Ошибка связи — говорите ещё раз");
-      scheduleListen();
     }
   } finally {
     sendingVoice = false;
     $("btnSend").disabled = false;
-    if (!callActive) $("message").focus();
+    // критично: после ответа снова слушаем (раньше ломалось из‑за гонки с speak)
+    if (callActive && !botSpeaking) scheduleListen(500);
+    else if (!callActive) $("message").focus();
   }
 }
 
@@ -653,60 +785,20 @@ async function sampleVoiceProfile(stream, ms = 1200) {
 function initSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    $("btnMic").disabled = true;
-    $("btnMic").title = "Голос не поддерживается в этом браузере (нужен Chrome/Edge)";
+    if ($("btnMic")) {
+      $("btnMic").disabled = true;
+      $("btnMic").title = "Голос не поддерживается в этом браузере (нужен Chrome/Edge)";
+    }
     return;
   }
-  recognition = new SR();
-  recognition.lang = "ru-RU";
-  recognition.interimResults = true;
-  recognition.continuous = false;
-
-  recognition.onstart = () => {
-    recognizing = true;
-    $("btnMic").classList.add("active");
-    if (callActive) setCallStatus("listening", "Слушаю вас… говорите");
-  };
-  recognition.onend = () => {
-    recognizing = false;
-    $("btnMic").classList.remove("active");
-    // нон-стоп: снова слушаем, пока звонок идёт
-    if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
-  };
-  recognition.onerror = (ev) => {
-    recognizing = false;
-    $("btnMic").classList.remove("active");
-    const err = ev && ev.error;
-    // no-speech / aborted — нормально, просто перезапускаем
-    if (callActive && err && err !== "aborted" && err !== "no-speech") {
-      setCallStatus("listening", "Не расслышала, говорите ещё раз…");
-    }
-    if (callActive && !botSpeaking && !sendingVoice) scheduleListen();
-  };
-  recognition.onresult = (ev) => {
-    let finalText = "";
-    let interim = "";
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      const t = ev.results[i][0].transcript;
-      if (ev.results[i].isFinal) finalText += t;
-      else interim += t;
-    }
-    const shown = (finalText || interim).trim();
-    if (shown) {
-      if ($("message")) $("message").value = shown;
-      if (callActive) setLiveCaption("Вы: " + shown, true);
-    }
-    if (finalText.trim()) {
-      stopListening();
-      sendMessage(finalText.trim());
-    }
-  };
+  recognition = createRecognition();
+  bindRecognitionHandlers();
 }
 
 async function toggleMic() {
-  if (!recognition) return;
+  if (!window.SpeechRecognition && !window.webkitSpeechRecognition) return;
   if (recognizing) {
-    recognition.stop();
+    stopListening();
     return;
   }
   if (callActive) {
@@ -714,6 +806,8 @@ async function toggleMic() {
     return;
   }
   await ensureMicOnce();
+  recognition = createRecognition();
+  bindRecognitionHandlers();
   try {
     recognition.start();
   } catch {}
